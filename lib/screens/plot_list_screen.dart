@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'add_plot_screen.dart';
 import 'customer_detail_screen.dart';
 import 'site_customer_search_screen.dart';
+import '../widgets/breadcrumb.dart';
 
 class PlotListScreen extends StatefulWidget {
   final String siteId;
@@ -43,10 +44,34 @@ class _PlotListScreenState extends State<PlotListScreen> {
             ),
         ],
       ),
+
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+
+          // ✅ BREADCRUMB
           Padding(
             padding: const EdgeInsets.all(10),
+            child: Breadcrumb(
+              items: [
+                BreadcrumbItem(
+                  label: "Home",
+                  onTap: () => Navigator.pop(context),
+                ),
+                BreadcrumbItem(
+                  label: "Sites",
+                  onTap: () => Navigator.pop(context),
+                ),
+                BreadcrumbItem(
+                  label: "Plots",
+                ),
+              ],
+            ),
+          ),
+
+          // 🔍 SEARCH
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
             child: TextField(
               controller: searchController,
               decoration: const InputDecoration(
@@ -59,6 +84,10 @@ class _PlotListScreenState extends State<PlotListScreen> {
               },
             ),
           ),
+
+          const SizedBox(height: 10),
+
+          // 📋 LIST
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance

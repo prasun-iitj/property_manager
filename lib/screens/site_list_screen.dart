@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'add_site_screen.dart';
 import 'plot_list_screen.dart';
+import '../widgets/breadcrumb.dart';
 
 class SiteListScreen extends StatefulWidget {
   final String role;
@@ -58,7 +59,6 @@ class _SiteListScreenState extends State<SiteListScreen> {
 
     try {
 
-      // 🔐 Reauthenticate Admin
       User? user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
@@ -71,7 +71,6 @@ class _SiteListScreenState extends State<SiteListScreen> {
 
       final firestore = FirebaseFirestore.instance;
 
-      // 🔹 Get all plots
       var plotsSnapshot = await firestore
           .collection('sites')
           .doc(siteId)
@@ -80,7 +79,6 @@ class _SiteListScreenState extends State<SiteListScreen> {
 
       for (var plotDoc in plotsSnapshot.docs) {
 
-        // 🔹 Get payments
         var paymentsSnapshot = await firestore
             .collection('sites')
             .doc(siteId)
@@ -95,7 +93,6 @@ class _SiteListScreenState extends State<SiteListScreen> {
           await payment.reference.delete();
         }
 
-        // 🔹 Delete customer document
         await firestore
             .collection('sites')
             .doc(siteId)
@@ -105,11 +102,9 @@ class _SiteListScreenState extends State<SiteListScreen> {
             .doc('details')
             .delete();
 
-        // 🔹 Delete plot
         await plotDoc.reference.delete();
       }
 
-      // 🔹 Delete site
       await firestore.collection('sites').doc(siteId).delete();
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -147,92 +142,118 @@ class _SiteListScreenState extends State<SiteListScreen> {
             ),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('sites')
-            .snapshots(),
-        builder: (context, snapshot) {
 
-          if (snapshot.connectionState ==
-              ConnectionState.waiting) {
-            return const Center(
-                child: CircularProgressIndicator());
-          }
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
 
-          if (!snapshot.hasData ||
-              snapshot.data!.docs.isEmpty) {
-            return const Center(
-                child: Text("No Sites Found"));
-          }
-
-          return ListView(
+          // ✅ BREADCRUMB ADDED HERE
+          Padding(
             padding: const EdgeInsets.all(10),
-            children: snapshot.data!.docs.map((doc) {
+            child: Breadcrumb(
+              items: [
+                BreadcrumbItem(
+                  label: "Home",
+                  onTap: () => Navigator.pop(context),
+                ),
+                BreadcrumbItem(
+                  label: "Sites",
+                ),
+              ],
+            ),
+          ),
 
-              final data =
-                  doc.data() as Map<String, dynamic>;
+          // ✅ LIST CONTENT
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('sites')
+                  .snapshots(),
+              builder: (context, snapshot) {
 
-              return Card(
-                margin:
-                    const EdgeInsets.symmetric(vertical: 8),
-                child: ListTile(
-                  title: Text(data['name'] ?? ''),
-                  subtitle: Text(data['location'] ?? ''),
-                  trailing: widget.role == "admin"
-                      ? PopupMenuButton<String>(
-                          onSelected: (value) async {
-                            if (value == "edit") {
-                              await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      AddSiteScreen(
-                                    siteId: doc.id,
-                                    isEdit: true,
+                if (snapshot.connectionState ==
+                    ConnectionState.waiting) {
+                  return const Center(
+                      child: CircularProgressIndicator());
+                }
+
+                if (!snapshot.hasData ||
+                    snapshot.data!.docs.isEmpty) {
+                  return const Center(
+                      child: Text("No Sites Found"));
+                }
+
+                return ListView(
+                  padding: const EdgeInsets.all(10),
+                  children: snapshot.data!.docs.map((doc) {
+
+                    final data =
+                        doc.data() as Map<String, dynamic>;
+
+                    return Card(
+                      margin:
+                          const EdgeInsets.symmetric(vertical: 8),
+                      child: ListTile(
+                        title: Text(data['name'] ?? ''),
+                        subtitle: Text(data['location'] ?? ''),
+                        trailing: widget.role == "admin"
+                            ? PopupMenuButton<String>(
+                                onSelected: (value) async {
+                                  if (value == "edit") {
+                                    await Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            AddSiteScreen(
+                                          siteId: doc.id,
+                                          isEdit: true,
+                                        ),
+                                      ),
+                                    );
+                                    setState(() {});
+                                  } else if (value == "delete") {
+                                    await deleteSite(doc.id);
+                                  }
+                                },
+                                itemBuilder: (context) => const [
+                                  PopupMenuItem(
+                                    value: "edit",
+                                    child: Text("Edit"),
                                   ),
-                                ),
-                              );
-                              setState(() {});
-                            } else if (value == "delete") {
-                              await deleteSite(doc.id);
-                            }
-                          },
-                          itemBuilder: (context) => const [
-                            PopupMenuItem(
-                              value: "edit",
-                              child: Text("Edit"),
-                            ),
-                            PopupMenuItem(
-                              value: "delete",
-                              child: Text(
-                                "Delete",
-                                style: TextStyle(
-                                    color: Colors.red),
+                                  PopupMenuItem(
+                                    value: "delete",
+                                    child: Text(
+                                      "Delete",
+                                      style: TextStyle(
+                                          color: Colors.red),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : const Icon(
+                                Icons.arrow_forward_ios,
+                                size: 16,
+                              ),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => PlotListScreen(
+                                siteId: doc.id,
+                                siteName: data['name'],
+                                role: widget.role,
                               ),
                             ),
-                          ],
-                        )
-                      : const Icon(
-                          Icons.arrow_forward_ios,
-                          size: 16,
-                        ),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => PlotListScreen(
-                          siteId: doc.id,
-                          siteName: data['name'],
-                          role: widget.role,
-                        ),
+                          );
+                        },
                       ),
                     );
-                  },
-                ),
-              );
-            }).toList(),
-          );
-        },
+                  }).toList(),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

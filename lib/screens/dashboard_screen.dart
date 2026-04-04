@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'site_list_screen.dart';
+import 'ledger/ledger_dashboard.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -26,8 +27,11 @@ class DashboardScreen extends StatelessWidget {
             .collectionGroup('payments')
             .get(),
         builder: (context, snapshot) {
+
           if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
           }
 
           int todayTotal = 0;
@@ -36,9 +40,12 @@ class DashboardScreen extends StatelessWidget {
           DateTime now = DateTime.now();
 
           for (var doc in snapshot.data!.docs) {
+
             var data = doc.data() as Map<String, dynamic>;
+
             Timestamp ts = data['date'];
             DateTime date = ts.toDate();
+
             int amount = data['amount'];
 
             if (date.year == now.year && date.month == now.month) {
@@ -60,13 +67,19 @@ class DashboardScreen extends StatelessWidget {
                 end: Alignment.bottomCenter,
               ),
             ),
+
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(20),
+
               child: Column(
                 children: [
+
                   _buildCard("Today Collection", todayTotal),
+
                   const SizedBox(height: 15),
+
                   _buildCard("This Month Collection", monthTotal),
+
                   const SizedBox(height: 30),
 
                   ElevatedButton.icon(
@@ -98,6 +111,28 @@ class DashboardScreen extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 30, vertical: 15),
                     ),
+                    icon: const Icon(Icons.account_balance_wallet),
+                    label: const Text("Money Ledger"),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              const LedgerDashboard(),
+                        ),
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 15),
+
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 30, vertical: 15),
+                    ),
                     icon: const Icon(Icons.bar_chart),
                     label: const Text("View Reports"),
                     onPressed: () {
@@ -108,6 +143,7 @@ class DashboardScreen extends StatelessWidget {
                       );
                     },
                   ),
+
                 ],
               ),
             ),
@@ -126,14 +162,20 @@ class DashboardScreen extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(
             horizontal: 20, vertical: 20),
+
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          mainAxisAlignment:
+              MainAxisAlignment.spaceBetween,
+
           children: [
+
             Text(
               title,
               style: const TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.bold),
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold),
             ),
+
             Text(
               "₹ $amount",
               style: const TextStyle(
@@ -142,6 +184,7 @@ class DashboardScreen extends StatelessWidget {
                 color: Colors.green,
               ),
             ),
+
           ],
         ),
       ),

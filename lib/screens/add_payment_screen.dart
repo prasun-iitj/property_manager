@@ -17,68 +17,113 @@ class AddPaymentScreen extends StatefulWidget {
 }
 
 class _AddPaymentScreenState extends State<AddPaymentScreen> {
-  final amountController = TextEditingController();
+  final TextEditingController amountController = TextEditingController();
 
   DateTime selectedDate = DateTime.now();
-  String selectedMode = "Cash"; // ✅ MOVED HERE (Correct place)
+  String selectedMode = "Cash";
+
+  bool isLoading = false;
 
   Future<void> addPayment() async {
-    if (amountController.text.trim().isEmpty) return;
+    try {
+      if (amountController.text.trim().isEmpty) {
+        showError("Please enter amount");
+        return;
+      }
 
-    int amount = int.parse(amountController.text.trim());
+      int? amount = int.tryParse(amountController.text.trim());
+      if (amount == null || amount <= 0) {
+        showError("Invalid amount");
+        return;
+      }
 
-    var customerRef = FirebaseFirestore.instance
-        .collection('sites')
-        .doc(widget.siteId)
-        .collection('plots')
-        .doc(widget.plotId)
-        .collection('customer')
-        .doc('details');
+      setState(() => isLoading = true);
 
-    var customerDoc = await customerRef.get();
+      final customerRef = FirebaseFirestore.instance
+          .collection('sites')
+          .doc(widget.siteId)
+          .collection('plots')
+          .doc(widget.plotId)
+          .collection('customer')
+          .doc('details');
 
-    if (!customerDoc.exists) return;
+      final customerDoc = await customerRef.get();
 
-    int totalPaid = customerDoc['totalPaid'] ?? 0;
-    int totalPrice = customerDoc['totalPrice'] ?? 0;
+      if (!customerDoc.exists) {
+        showError("Customer not found");
+        return;
+      }
 
-    int newTotalPaid = totalPaid + amount;
-    int remaining = totalPrice - newTotalPaid;
+      final data = customerDoc.data() ?? {};
 
-    // Add payment record
-    await customerRef.collection('payments').add({
-      'amount': amount,
-      'date': Timestamp.fromDate(selectedDate),
-      'mode': selectedMode,
-    });
+      // ✅ SAFE TYPE HANDLING
+      int totalPaid = 0;
+      int totalPrice = 0;
+      int emiDay = 5;
 
-    int emiDay =
-        customerDoc.data() != null &&
-            (customerDoc.data() as Map).containsKey('emiDay')
-        ? customerDoc['emiDay']
-        : 5;
+      if (data['totalPaid'] != null) {
+        if (data['totalPaid'] is int) {
+          totalPaid = data['totalPaid'];
+        } else {
+          totalPaid = int.tryParse(data['totalPaid'].toString()) ?? 0;
+        }
+      }
 
-    DateTime now = selectedDate;
-    DateTime nextEmi;
+      if (data['totalPrice'] != null) {
+        if (data['totalPrice'] is int) {
+          totalPrice = data['totalPrice'];
+        } else {
+          totalPrice = int.tryParse(data['totalPrice'].toString()) ?? 0;
+        }
+      }
 
-    if (now.day >= emiDay) {
-      nextEmi = DateTime(now.year, now.month + 1, emiDay);
-    } else {
-      nextEmi = DateTime(now.year, now.month, emiDay);
+      if (data['emiDay'] != null) {
+        if (data['emiDay'] is int) {
+          emiDay = data['emiDay'];
+        } else {
+          emiDay = int.tryParse(data['emiDay'].toString()) ?? 5;
+        }
+      }
+
+      final int newTotalPaid = totalPaid + amount;
+      final int remaining = totalPrice - newTotalPaid;
+
+      // ✅ SAVE PAYMENT
+      await customerRef.collection('payments').add({
+        'amount': amount,
+        'date': Timestamp.fromDate(selectedDate),
+        'mode': selectedMode,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // ✅ EMI CALCULATION
+      DateTime nextEmi;
+      if (selectedDate.day >= emiDay) {
+        nextEmi = DateTime(selectedDate.year, selectedDate.month + 1, emiDay);
+      } else {
+        nextEmi = DateTime(selectedDate.year, selectedDate.month, emiDay);
+      }
+
+      // ✅ UPDATE CUSTOMER
+      await customerRef.update({
+        'totalPaid': newTotalPaid,
+        'remaining': remaining,
+        'nextEmiDate': Timestamp.fromDate(nextEmi),
+      });
+
+      // ✅ WHATSAPP (SAFE)
+      final String phone = data['phone']?.toString() ?? "";
+
+      if (phone.isNotEmpty) {
+        await sendWhatsAppMessage(phone, amount, newTotalPaid, remaining);
+      }
+
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      showError("Error: $e");
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
-
-    // Update totals
-    await customerRef.update({
-      'totalPaid': newTotalPaid,
-      'remaining': remaining,
-      'nextEmiDate': Timestamp.fromDate(nextEmi),
-    });
-
-    String phone = customerDoc['phone'];
-
-    await sendWhatsAppMessage(phone, amount, newTotalPaid, remaining);
-
-    Navigator.pop(context);
   }
 
   Future<void> sendWhatsAppMessage(
@@ -87,8 +132,8 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
     int totalPaid,
     int remaining,
   ) async {
-    String message =
-        """
+    try {
+      final message = '''
 Payment Received Successfully
 
 Amount Paid: ₹$amount
@@ -96,15 +141,29 @@ Total Paid: ₹$totalPaid
 Remaining Amount: ₹$remaining
 
 Thank you.
-""";
+''';
 
-    String url = "https://wa.me/91$phone?text=${Uri.encodeComponent(message)}";
+      final url =
+          "https://wa.me/91$phone?text=${Uri.encodeComponent(message)}";
 
-    final Uri whatsappUri = Uri.parse(url);
+      final uri = Uri.parse(url);
 
-    if (await canLaunchUrl(whatsappUri)) {
-      await launchUrl(whatsappUri, mode: LaunchMode.externalApplication);
-    }
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {}
+  }
+
+  void showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
+  }
+
+  @override
+  void dispose() {
+    amountController.dispose();
+    super.dispose();
   }
 
   @override
@@ -118,11 +177,13 @@ Thank you.
             TextField(
               controller: amountController,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: "Payment Amount"),
+              decoration: const InputDecoration(
+                labelText: "Payment Amount",
+                border: OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: 20),
 
-            // Date Picker
             ListTile(
               title: Text(
                 "Date: ${selectedDate.day}/${selectedDate.month}/${selectedDate.year}",
@@ -137,36 +198,42 @@ Thank you.
                 );
 
                 if (picked != null) {
-                  setState(() {
-                    selectedDate = picked;
-                  });
+                  setState(() => selectedDate = picked);
                 }
-              },
-            ),
-
-            const SizedBox(height: 10),
-
-            // Payment Mode Dropdown
-            DropdownButtonFormField<String>(
-              initialValue: selectedMode,
-              decoration: const InputDecoration(labelText: "Payment Mode"),
-              items: ["Cash", "UPI", "Bank"]
-                  .map(
-                    (mode) => DropdownMenuItem(value: mode, child: Text(mode)),
-                  )
-                  .toList(),
-              onChanged: (value) {
-                setState(() {
-                  selectedMode = value!;
-                });
               },
             ),
 
             const SizedBox(height: 20),
 
-            ElevatedButton(
-              onPressed: addPayment,
-              child: const Text("Save Payment"),
+            DropdownButtonFormField<String>(
+              value: selectedMode,
+              decoration: const InputDecoration(
+                labelText: "Payment Mode",
+                border: OutlineInputBorder(),
+              ),
+              items: ["Cash", "UPI", "Bank"]
+                  .map((mode) => DropdownMenuItem(
+                        value: mode,
+                        child: Text(mode),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => selectedMode = value);
+                }
+              },
+            ),
+
+            const SizedBox(height: 30),
+
+            SizedBox(
+              width: double.infinity,
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton(
+                      onPressed: addPayment,
+                      child: const Text("Save Payment"),
+                    ),
             ),
           ],
         ),

@@ -83,4 +83,5 @@ class DefaultFirebaseOptions {
     authDomain: 'propertymanagerapp-c4961.firebaseapp.com',
     storageBucket: 'propertymanagerapp-c4961.firebasestorage.app',
   );
+
 }

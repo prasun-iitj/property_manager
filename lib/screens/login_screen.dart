@@ -12,6 +12,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+
   final email = TextEditingController();
   final password = TextEditingController();
 
@@ -25,17 +26,20 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> login() async {
-    if (email.text.trim().isEmpty ||
-        password.text.trim().isEmpty) {
+
+    if (email.text.trim().isEmpty || password.text.trim().isEmpty) {
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Enter email and password")),
       );
+
       return;
     }
 
     setState(() => isLoading = true);
 
     try {
+
       var userCredential =
           await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email.text.trim(),
@@ -54,12 +58,15 @@ class _LoginScreenState extends State<LoginScreen> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => role == "admin"
-              ? const DashboardScreen()
-              : SiteListScreen(role: role),
+          builder: (_) =>
+              role == "admin"
+                  ? const DashboardScreen()
+                  : SiteListScreen(role: role),
         ),
       );
+
     } on FirebaseAuthException catch (e) {
+
       String message = "Login Failed";
 
       if (e.code == 'user-not-found') {
@@ -73,28 +80,37 @@ class _LoginScreenState extends State<LoginScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
       );
+
     } catch (e) {
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Something went wrong")),
       );
+
     } finally {
+
       if (mounted) {
         setState(() => isLoading = false);
       }
+
     }
   }
 
   Future<void> resetPassword() async {
+
     String userEmail = email.text.trim();
 
     if (userEmail.isEmpty) {
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Enter your email first")),
       );
+
       return;
     }
 
     try {
+
       await FirebaseAuth.instance
           .sendPasswordResetEmail(email: userEmail);
 
@@ -103,7 +119,9 @@ class _LoginScreenState extends State<LoginScreen> {
           content: Text("Password reset link sent to your email"),
         ),
       );
+
     } on FirebaseAuthException catch (e) {
+
       String message = "Failed to send reset email";
 
       if (e.code == 'user-not-found') {
@@ -113,39 +131,66 @@ class _LoginScreenState extends State<LoginScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
       );
+
     }
   }
 
   @override
   Widget build(BuildContext context) {
+
     return Scaffold(
+
       body: Container(
+
         decoration: const BoxDecoration(
+
           gradient: LinearGradient(
-            colors: [Color(0xFF1E3C72), Color(0xFF2A5298)],
+            colors: [Color(0xFF1E3A8A), Color(0xFF2A5298)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
+
         ),
+
         child: Center(
+
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(30),
+
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+
             child: Card(
-              elevation: 10,
+
+              elevation: 8,
+
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
+
               child: Padding(
-                padding: const EdgeInsets.all(25),
+
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 26,
+                  vertical: 32,
+                ),
+
                 child: Column(
+
                   mainAxisSize: MainAxisSize.min,
+
                   children: [
+
+                    /// Icon
+
                     const Icon(
-                      Icons.home_work,
+                      Icons.home_work_rounded,
                       size: 60,
-                      color: Color(0xFF1E3C72),
+                      color: Color(0xFF1E3A8A),
                     ),
+
                     const SizedBox(height: 10),
+
+                    /// Title
+
                     const Text(
                       "Property Manager",
                       style: TextStyle(
@@ -153,26 +198,35 @@ class _LoginScreenState extends State<LoginScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 25),
+
+                    const SizedBox(height: 30),
+
+                    /// Email
 
                     TextField(
                       controller: email,
                       decoration: const InputDecoration(
                         labelText: "Email",
-                        prefixIcon: Icon(Icons.email),
+                        prefixIcon: Icon(Icons.email_outlined),
                       ),
                     ),
-                    const SizedBox(height: 15),
+
+                    const SizedBox(height: 16),
+
+                    /// Password
 
                     TextField(
                       controller: password,
                       obscureText: true,
                       decoration: const InputDecoration(
                         labelText: "Password",
-                        prefixIcon: Icon(Icons.lock),
+                        prefixIcon: Icon(Icons.lock_outline),
                       ),
                     ),
-                    const SizedBox(height: 10),
+
+                    const SizedBox(height: 8),
+
+                    /// Forgot password
 
                     Align(
                       alignment: Alignment.centerRight,
@@ -182,24 +236,34 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: 15),
+                    const SizedBox(height: 14),
+
+                    /// Login Button
 
                     SizedBox(
                       width: double.infinity,
+                      height: 48,
+
                       child: ElevatedButton(
+
                         onPressed: isLoading ? null : login,
+
                         child: isLoading
                             ? const SizedBox(
-                                height: 18,
-                                width: 18,
+                                height: 20,
+                                width: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
                                   color: Colors.white,
                                 ),
                               )
-                            : const Text("Login"),
+                            : const Text(
+                                "Login",
+                                style: TextStyle(fontSize: 16),
+                              ),
                       ),
                     ),
+
                   ],
                 ),
               ),
