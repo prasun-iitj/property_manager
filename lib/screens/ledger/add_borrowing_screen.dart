@@ -22,7 +22,9 @@ class _AddBorrowingScreenState extends State<AddBorrowingScreen> {
 
     if (principalController.text.isEmpty ||
         interestController.text.isEmpty ||
-        durationController.text.isEmpty) return;
+        durationController.text.isEmpty) {
+      return;
+    }
 
     int principal = int.tryParse(principalController.text) ?? 0;
     int rate = int.tryParse(interestController.text) ?? 0;

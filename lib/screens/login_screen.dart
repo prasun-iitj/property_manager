@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/foundation.dart';
 import 'dashboard_screen.dart';
 import 'site_list_screen.dart';
+
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,6 +28,8 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  /// EMAIL LOGIN
+
   Future<void> login() async {
 
     if (email.text.trim().isEmpty || password.text.trim().isEmpty) {
@@ -46,24 +51,7 @@ class _LoginScreenState extends State<LoginScreen> {
         password: password.text.trim(),
       );
 
-      String uid = userCredential.user!.uid;
-
-      var doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
-
-      String role = doc['role'];
-
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) =>
-              role == "admin"
-                  ? const DashboardScreen()
-                  : SiteListScreen(role: role),
-        ),
-      );
+      await _navigateUser(userCredential.user!.uid);
 
     } on FirebaseAuthException catch (e) {
 
@@ -95,6 +83,91 @@ class _LoginScreenState extends State<LoginScreen> {
 
     }
   }
+
+  /// GOOGLE LOGIN
+
+Future<void> signInWithGoogle() async {
+  try {
+
+    UserCredential userCredential;
+
+    if (kIsWeb) {
+
+      // Web login
+      GoogleAuthProvider googleProvider = GoogleAuthProvider();
+
+      userCredential =
+          await FirebaseAuth.instance.signInWithPopup(googleProvider);
+
+    } else {
+
+      // Android / iOS login
+      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+
+      if (googleUser == null) return;
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      userCredential =
+          await FirebaseAuth.instance.signInWithCredential(credential);
+    }
+
+    /// USER INFO
+    final user = userCredential.user;
+
+    if (user == null) return;
+
+    final userDoc =
+        FirebaseFirestore.instance.collection('users').doc(user.uid);
+
+    final doc = await userDoc.get();
+
+    /// CREATE USER IF NOT EXISTS
+    if (!doc.exists) {
+
+      await userDoc.set({
+        "email": user.email,
+        "role": "staff", // default role
+        "createdAt": FieldValue.serverTimestamp(),
+      });
+
+    }
+
+  } catch (e) {
+
+    print("Google login error: $e");
+
+  }
+}
+  /// NAVIGATION BASED ON ROLE
+
+  Future<void> _navigateUser(String uid) async {
+
+    var doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .get();
+
+    String role = doc['role'];
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            role == "admin"
+                ? const DashboardScreen()
+                : SiteListScreen(role: role),
+      ),
+    );
+  }
+
+  /// RESET PASSWORD
 
   Future<void> resetPassword() async {
 
@@ -179,8 +252,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   children: [
 
-                    /// Icon
-
                     const Icon(
                       Icons.home_work_rounded,
                       size: 60,
@@ -188,8 +259,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
 
                     const SizedBox(height: 10),
-
-                    /// Title
 
                     const Text(
                       "Property Manager",
@@ -201,8 +270,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                     const SizedBox(height: 30),
 
-                    /// Email
-
                     TextField(
                       controller: email,
                       decoration: const InputDecoration(
@@ -212,8 +279,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
 
                     const SizedBox(height: 16),
-
-                    /// Password
 
                     TextField(
                       controller: password,
@@ -226,8 +291,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                     const SizedBox(height: 8),
 
-                    /// Forgot password
-
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton(
@@ -238,7 +301,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                     const SizedBox(height: 14),
 
-                    /// Login Button
+                    /// EMAIL LOGIN BUTTON
 
                     SizedBox(
                       width: double.infinity,
@@ -261,6 +324,23 @@ class _LoginScreenState extends State<LoginScreen> {
                                 "Login",
                                 style: TextStyle(fontSize: 16),
                               ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    /// GOOGLE LOGIN BUTTON
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+
+                      child: OutlinedButton.icon(
+
+                        onPressed: isLoading ? null : signInWithGoogle,
+
+                        icon: const Icon(Icons.login),
+                        label: const Text("Sign in with Google"),
                       ),
                     ),
 

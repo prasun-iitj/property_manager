@@ -3,29 +3,43 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'site_list_screen.dart';
 import 'ledger/ledger_dashboard.dart';
+import 'login_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
+  Future<void> _logout(BuildContext context) async {
+
+    await FirebaseAuth.instance.signOut();
+
+    if (!context.mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("Admin Dashboard"),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              Navigator.pop(context);
-            },
+            onPressed: () => _logout(context),
           ),
         ],
       ),
+
       body: FutureBuilder<QuerySnapshot>(
         future: FirebaseFirestore.instance
             .collectionGroup('payments')
             .get(),
+
         builder: (context, snapshot) {
 
           if (!snapshot.hasData) {
@@ -159,6 +173,7 @@ class DashboardScreen extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
       ),
+
       child: Container(
         padding: const EdgeInsets.symmetric(
             horizontal: 20, vertical: 20),

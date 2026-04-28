@@ -206,7 +206,7 @@ Thank you.
             const SizedBox(height: 20),
 
             DropdownButtonFormField<String>(
-              value: selectedMode,
+              initialValue: selectedMode,
               decoration: const InputDecoration(
                 labelText: "Payment Mode",
                 border: OutlineInputBorder(),

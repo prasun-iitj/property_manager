@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'add_plot_screen.dart';
 import 'customer_detail_screen.dart';
-import 'site_customer_search_screen.dart';
 import '../widgets/breadcrumb.dart';
 
 class PlotListScreen extends StatefulWidget {

@@ -53,7 +53,7 @@ class BorrowingDetailScreen extends StatelessWidget {
     double totalPrincipalPaid = 0;
 
     for (var doc in snap.docs) {
-      var data = doc.data() as Map<String, dynamic>;
+      var data = doc.data();
       totalPrincipalPaid +=
           (data['principalPaid'] ?? 0).toDouble();
     }
