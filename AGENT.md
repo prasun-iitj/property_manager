@@ -1,48 +1,158 @@
 # AI Agent Development Guide
 
-This file helps AI coding assistants understand the current system and
-how to safely extend it.
+Guidance for AI coding assistants working on **Property Manager** (Flutter + Firebase).
 
-## Project Type
+---
 
-Flutter + Firebase property management application (V1 operational
-version).
+## Project summary
 
-## Current Functional Scope
+| Item | Value |
+|------|--------|
+| Type | Flutter cross-platform app |
+| Backend | Firebase Auth, Firestore, Storage |
+| Domain | Property sales + personal lending/borrowing ledger |
+| Version | V1 operational |
+| Primary user | Property dealer / small developer (India, ₹) |
 
-- Authentication with role-based behavior (admin/staff)
-- Site -> Plot -> Customer management flow
-- Customer payment tracking under plot customers
-- Customer document handling (upload, storage, preview)
-- Finance module for lending and borrowing with installments
-- Basic analytics, PDF export, and backup utilities
+---
 
-## Current Data Reality
+## Functional scope (current)
 
-Primary hierarchy:
+### Authentication
 
-- `sites/{siteId}/plots/{plotId}/customer/{customerId}/payments/{paymentId}`
+- Email/password via Firebase Auth  
+- `users/{uid}.role`: `admin` | `staff`  
+- Admin → `DashboardScreen` (3 zones)  
+- Staff → `SiteListScreen` (Property Hub)
 
-Ledger hierarchy:
+### Property (`sites` → `plots` → `customer/details`)
 
-- `ledger/master/lending/{loanId}/installments/{installmentId}`
-- `ledger/master/borrowing/{borrowId}/installments/{installmentId}`
+- Sites, plots, customers, payments, documents  
+- Unique plot numbers per site  
+- Payment overpayment allowed (`remaining` can be negative)  
+- EMI day + overdue notifications  
+- Document upload/preview/download/rename (web-aware)
 
-Auth/user roles:
+### Ledger (`ledger/data`)
 
-- `users/{uid}` (role is used in app routing and permissions behavior)
+- `lending` and `borrowing` with `installments`  
+- Interest-first, date-sorted replay (`LedgerCalculator`)  
+- Overpayment allowed on loans  
+- Dashboard chart, analytics, CSV backup
 
-## Assistant Priorities
+### Insights
 
-- Keep architecture maintainable and modular
-- Prefer service-layer logic over direct Firebase calls in screens
-- Preserve backward compatibility with existing Firestore collections
-- Avoid destructive schema changes without migration plan
-- Keep queries scalable (indexes, pagination where needed)
+- `ReportsScreen` — property + ledger summaries, charts  
+- `DashboardService`, `PropertyAnalyticsService`
 
-## V2 Direction
+---
 
-- Stronger domain model and cleaner layering
-- Unified customer/tenant profile with full transaction history
-- Better search, receipts, analytics, and notifications
-- SaaS-readiness with role and multi-property improvements
+## Canonical Firestore paths
+
+**Use `lib/constants/firestore_paths.dart` — not outdated docs.**
+
+```
+sites/{siteId}/plots/{plotId}/customer/details
+  payments/{paymentId}
+  documents/{documentId}
+
+ledger/data/lending/{loanId}/installments/{installmentId}
+ledger/data/borrowing/{borrowId}/installments/{installmentId}
+
+users/{uid}
+```
+
+**Legacy (read-only fallback):**
+
+- `customers/{id}/documents`  
+- Storage: `customers/{siteId}_{plotId}/{fileName}`
+
+**Wrong (do not use in new code):** `ledger/master/...`
+
+---
+
+## Key services (prefer over inline Firestore)
+
+| Service | Use for |
+|---------|---------|
+| `CustomerService` | Customer, payments (transactions) |
+| `PlotService` | Plots, duplicate check |
+| `SiteService` | Sites, cascade delete |
+| `DocumentService` | Docs + `fetchDocumentBytes` |
+| `LedgerService` | Loans, installments, replay |
+| `DashboardService` | Stats, ledger monthly buckets |
+| `PropertyAnalyticsService` | Site/plot summaries, property charts |
+| `SearchService` | Site customer search |
+
+---
+
+## Business rules (do not break)
+
+1. **Ledger:** interest on remaining principal → interest first → principal; sort by date; allow negative balance.  
+2. **Property payments:** allow `remaining < 0` (overpayment).  
+3. **Plot numbers:** unique per site via `PlotService.normalizePlotNumber`.  
+4. **Web downloads:** no `Dio.get(firebaseStorageUrl)` — use Storage SDK or authenticated fetch + blob save.
+
+---
+
+## File map (high signal)
+
+```
+lib/
+  auth_gate.dart
+  constants/firestore_paths.dart
+  utils/ledger_calculator.dart      # ALL ledger math
+  services/                         # Firebase layer
+  screens/                          # UI
+  screens/ledger/                   # Ledger UI
+  widgets/                          # dashboard_zone, property_chart, ...
+```
+
+---
+
+## Assistant priorities
+
+1. Read `ARCHITECTURE.md` and `DATABASE_SCHEMA.md` before schema changes.  
+2. Put Firebase logic in **services**, not large `build()` methods.  
+3. Update **USER_MANUAL.md** when user-visible behavior changes.  
+4. Run `flutter analyze lib` and `flutter test` after substantive changes.  
+5. Do not remove overpayment support or re-clamp balances to zero.  
+6. Do not use `refFromURL` for Storage when path + `customerId`/`fileName` available (query-param bugs on web).
+
+---
+
+## Common tasks
+
+| Task | Where to change |
+|------|-----------------|
+| Ledger formula | `lib/utils/ledger_calculator.dart` + tests |
+| Plot payment rules | `lib/services/customer_service.dart` |
+| New screen | `lib/screens/` + route from parent |
+| Firestore path | `firestore_paths.dart` + rules + DATABASE_SCHEMA.md |
+| Web document fix | `document_service.dart`, `file_saver/`, `storage_bytes_fetcher_*` |
+
+---
+
+## Testing
+
+```bash
+flutter test
+flutter analyze lib
+```
+
+Existing: `test/ledger_calculator_test.dart`, `test/widget_test.dart`
+
+---
+
+## Documentation set
+
+| File | Purpose |
+|------|---------|
+| `README.md` | Overview, setup, index |
+| `USER_MANUAL.md` | End-user guide |
+| `ARCHITECTURE.md` | Technical design |
+| `DATABASE_SCHEMA.md` | Schema reference |
+| `INSTRUCTIONS.md` | Dev conventions |
+| `PRODUCT_ROADMAP.md` | Future versions |
+
+Keep these synchronized when shipping features.

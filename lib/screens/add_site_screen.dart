@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/site_model.dart';
+import '../services/site_service.dart';
 
 class AddSiteScreen extends StatefulWidget {
   final String? siteId;
@@ -16,6 +17,7 @@ class AddSiteScreen extends StatefulWidget {
 }
 
 class _AddSiteScreenState extends State<AddSiteScreen> {
+  final SiteService _siteService = SiteService();
   final nameController = TextEditingController();
   final locationController = TextEditingController();
 
@@ -38,19 +40,17 @@ class _AddSiteScreenState extends State<AddSiteScreen> {
 
   Future<void> loadSiteData() async {
     try {
-      var doc = await FirebaseFirestore.instance
-          .collection('sites')
-          .doc(widget.siteId)
-          .get();
+      final doc = await _siteService.getSite(widget.siteId!);
 
       if (doc.exists) {
-        var data = doc.data()!;
-        nameController.text = data['name'] ?? '';
-        locationController.text = data['location'] ?? '';
+        final site = SiteModel.fromMap(doc.id, doc.data()!);
+        nameController.text = site.name;
+        locationController.text = site.location;
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Failed to load site data")),
+        const SnackBar(content: Text("Could not load site details")),
       );
     }
   }
@@ -61,7 +61,7 @@ class _AddSiteScreenState extends State<AddSiteScreen> {
 
     if (name.isEmpty || location.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("All fields are required")),
+        const SnackBar(content: Text("Please fill in all fields")),
       );
       return;
     }
@@ -69,32 +69,25 @@ class _AddSiteScreenState extends State<AddSiteScreen> {
     setState(() => isLoading = true);
 
     try {
-      if (widget.isEdit && widget.siteId != null) {
-        // 🔹 Update existing site
-        await FirebaseFirestore.instance
-            .collection('sites')
-            .doc(widget.siteId)
-            .set({
-          'name': name,
-          'location': location,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      } else {
-        // 🔹 Create new site
-        await FirebaseFirestore.instance
-            .collection('sites')
-            .add({
-          'name': name,
-          'location': location,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-      }
+      final site = SiteModel(
+        id: widget.siteId ?? '',
+        name: name,
+        location: location,
+      );
+
+      await _siteService.saveSite(
+        site: site,
+        siteId: widget.siteId,
+        isEdit: widget.isEdit,
+      );
+      if (!mounted) return;
 
       Navigator.pop(context);
 
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Something went wrong")),
+        const SnackBar(content: Text("Could not save site. Please try again.")),
       );
     } finally {
       if (mounted) {
@@ -141,7 +134,7 @@ class _AddSiteScreenState extends State<AddSiteScreen> {
                             color: Colors.white,
                           ),
                         )
-                      : Text(widget.isEdit ? "Update" : "Save"),
+                      : Text(widget.isEdit ? "Update Site" : "Save Site"),
                 ),
               ),
             ],

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:typed_data';
 import '../services/storage_service.dart';
+import '../models/customer_model.dart';
+import '../services/customer_service.dart';
 
 class AddCustomerScreen extends StatefulWidget {
   final String siteId;
@@ -21,6 +22,7 @@ class AddCustomerScreen extends StatefulWidget {
 }
 
 class _AddCustomerScreenState extends State<AddCustomerScreen> {
+  final CustomerService _customerService = CustomerService();
   final nameController = TextEditingController();
   final phoneController = TextEditingController();
   final totalPriceController = TextEditingController();
@@ -40,7 +42,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   }
 
   Future<void> pickAadharFile() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
+    FilePickerResult? result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
       withData: true,
@@ -55,54 +57,73 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   }
 
   Future<void> loadCustomer() async {
-    final doc = await FirebaseFirestore.instance
-        .collection('sites')
-        .doc(widget.siteId)
-        .collection('plots')
-        .doc(widget.plotId)
-        .collection('customer')
-        .doc('details')
-        .get();
+    final doc = await _customerService.getCustomerDetails(
+      siteId: widget.siteId,
+      plotId: widget.plotId,
+    );
 
     if (doc.exists) {
       final data = doc.data() ?? {};
+      final customer = CustomerModel.fromMap(data);
 
-      nameController.text = data['name']?.toString() ?? "";
-      phoneController.text = data['phone']?.toString() ?? "";
-      totalPriceController.text =
-          (data['totalPrice'] ?? 0).toString();
-      emiDayController.text =
-          (data['emiDay'] ?? 5).toString();
+      nameController.text = customer.name;
+      phoneController.text = customer.phone;
+      totalPriceController.text = customer.totalPrice.toString();
+      emiDayController.text = customer.emiDay.toString();
     }
   }
 
   Future<void> saveCustomer() async {
+    final name = nameController.text.trim();
+    final phone = phoneController.text.trim();
+    final totalPrice = int.tryParse(totalPriceController.text.trim()) ?? 0;
+    int emiDay = int.tryParse(emiDayController.text.trim()) ?? 5;
+
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Customer name is required")),
+      );
+      return;
+    }
+
+    if (phone.isEmpty || phone.length < 10) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Enter a valid phone number")),
+      );
+      return;
+    }
+
+    if (totalPrice <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Total price must be greater than zero")),
+      );
+      return;
+    }
+
     try {
       setState(() => isLoading = true);
-
-      int totalPrice =
-          int.tryParse(totalPriceController.text.trim()) ?? 0;
-
-      int emiDay =
-          int.tryParse(emiDayController.text.trim()) ?? 5;
 
       if (emiDay < 1 || emiDay > 28) {
         emiDay = 5;
       }
 
-      final customerRef = FirebaseFirestore.instance
-          .collection('sites')
-          .doc(widget.siteId)
-          .collection('plots')
-          .doc(widget.plotId)
-          .collection('customer')
-          .doc('details');
-
-      final existingDoc = await customerRef.get();
+      final existingDoc = await _customerService.getCustomerDetails(
+        siteId: widget.siteId,
+        plotId: widget.plotId,
+      );
       final existingData = existingDoc.data() ?? {};
 
       int totalPaid = existingData['totalPaid'] ?? 0;
       int remaining = totalPrice - totalPaid;
+      if (remaining < 0) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Total price cannot be less than already paid amount"),
+          ),
+        );
+        return;
+      }
 
       String? aadharUrl;
 
@@ -116,33 +137,49 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
             customerId: widget.plotId,
             fileName: aadharFileName!,
           );
-        } catch (e) {
-          print("Upload failed: $e");
+        } catch (_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Aadhaar upload failed. Details will be saved without file."),
+            ),
+          );
         }
       }
 
-      await customerRef.set(
-        {
-          'name': nameController.text.trim(),
-          'phone': phoneController.text.trim(),
-          'totalPrice': totalPrice,
-          'emiDay': emiDay,
-          'totalPaid': totalPaid,
-          'remaining': remaining,
-          if (aadharUrl != null) 'aadharUrl': aadharUrl,
-        },
-        SetOptions(merge: true),
+      final customer = CustomerModel(
+        name: name,
+        phone: phone,
+        totalPrice: totalPrice,
+        emiDay: emiDay,
+        totalPaid: totalPaid,
+        remaining: remaining,
+        aadharUrl: existingData['aadharUrl']?.toString(),
+      );
+
+      await _customerService.saveCustomer(
+        siteId: widget.siteId,
+        plotId: widget.plotId,
+        customer: CustomerModel(
+          name: customer.name,
+          phone: customer.phone,
+          totalPrice: customer.totalPrice,
+          totalPaid: customer.totalPaid,
+          remaining: customer.remaining,
+          emiDay: customer.emiDay,
+          nextEmiDate: customer.nextEmiDate,
+          aadharUrl: aadharUrl ?? customer.aadharUrl,
+        ),
       );
 
       if (mounted) Navigator.pop(context);
-    } catch (e) {
-      print("SAVE ERROR: $e");
-
+    } catch (_) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: $e")),
+        const SnackBar(content: Text("Could not save customer details")),
       );
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -229,7 +266,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
                   onPressed: isLoading ? null : saveCustomer,
                   child: isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : Text(widget.isEdit ? "Update" : "Save"),
+                      : Text(widget.isEdit ? "Update Customer" : "Save Customer"),
                 ),
               ),
             ],

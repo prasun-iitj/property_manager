@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'add_customer_screen.dart';
 import 'add_payment_screen.dart';
-import 'document_upload_screen.dart'; // ✅ NEW IMPORT
-import '../widgets/breadcrumb.dart';
+import 'document_upload_screen.dart';
+import '../widgets/stat_card.dart';
+import '../widgets/property_chart.dart';
+import '../models/customer_model.dart';
+import '../services/customer_service.dart';
+import '../services/property_analytics_service.dart';
 
 class CustomerDetailScreen extends StatefulWidget {
   final String siteId;
@@ -24,90 +29,108 @@ class CustomerDetailScreen extends StatefulWidget {
 }
 
 class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
+  final CustomerService _customerService = CustomerService();
+  final PropertyAnalyticsService _analytics = PropertyAnalyticsService();
 
-  String get customerId => "${widget.siteId}_${widget.plotId}"; // ✅ UNIQUE ID
+  Map<int, PropertyMonthBucket> _paymentMonths = {};
+  int _chartYear = DateTime.now().year;
+  int? _selectedPayMonth;
+
+  String get customerId => "${widget.siteId}_${widget.plotId}";
+
+  Future<void> _loadPaymentChart() async {
+    final data = await _analytics.loadPlotPaymentMonthly(
+      siteId: widget.siteId,
+      plotId: widget.plotId,
+      year: _chartYear,
+    );
+    if (mounted) setState(() => _paymentMonths = data);
+  }
 
   Future<void> deleteCustomer() async {
-    bool? confirm = await showDialog(
+    final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text("Delete Customer"),
+        title: const Text('Delete Customer'),
         content: const Text(
-          "Are you sure? This will remove customer and all payments.",
+          'This will remove the customer and all payment records.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text("Cancel"),
+            child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text("Delete", style: TextStyle(color: Colors.red)),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
 
     if (confirm == true) {
-      await FirebaseFirestore.instance
-          .collection('sites')
-          .doc(widget.siteId)
-          .collection('plots')
-          .doc(widget.plotId)
-          .collection('customer')
-          .doc('details')
-          .delete();
-
+      await _customerService.deleteCustomer(
+        siteId: widget.siteId,
+        plotId: widget.plotId,
+      );
+      if (!mounted) return;
       Navigator.pop(context);
     }
   }
 
   Future<void> deletePayment(String paymentId) async {
-    bool? confirm = await showDialog(
+    final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text("Delete Payment"),
-        content: const Text("Are you sure you want to delete this payment?"),
+        title: const Text('Delete Payment'),
+        content: const Text('Remove this payment from history?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text("Cancel"),
+            child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text("Delete", style: TextStyle(color: Colors.red)),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
 
     if (confirm == true) {
-      await FirebaseFirestore.instance
-          .collection('sites')
-          .doc(widget.siteId)
-          .collection('plots')
-          .doc(widget.plotId)
-          .collection('customer')
-          .doc('details')
-          .collection('payments')
-          .doc(paymentId)
-          .delete();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Payment deleted")),
+      await _customerService.deletePayment(
+        siteId: widget.siteId,
+        plotId: widget.plotId,
+        paymentId: paymentId,
       );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Payment deleted')),
+      );
+    }
+  }
+
+  Future<void> _callCustomer(String phone) async {
+    if (phone.isEmpty) return;
+    final uri = Uri.parse('tel:$phone');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: Text("Plot ${widget.plotNumber}"),
+        title: Text('Plot ${widget.plotNumber}'),
+        backgroundColor: const Color(0xFF1E40AF),
+        foregroundColor: Colors.white,
         actions: [
-          if (widget.role == "admin")
+          if (widget.role == 'admin')
             IconButton(
               icon: const Icon(Icons.edit),
+              tooltip: 'Edit customer',
               onPressed: () async {
                 await Navigator.push(
                   context,
@@ -122,192 +145,322 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                 setState(() {});
               },
             ),
-          if (widget.role == "admin")
+          if (widget.role == 'admin')
             IconButton(
-              icon: const Icon(Icons.delete),
+              icon: const Icon(Icons.delete_outline),
+              tooltip: 'Delete customer',
               onPressed: deleteCustomer,
             ),
-          IconButton(
-            icon: const Icon(Icons.payment),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => AddPaymentScreen(
-                    siteId: widget.siteId,
-                    plotId: widget.plotId,
-                  ),
-                ),
-              );
-            },
-          ),
         ],
       ),
-
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-
-          Padding(
-            padding: const EdgeInsets.all(10),
-            child: Breadcrumb(
-              items: [
-                BreadcrumbItem(label: "Home", onTap: () => Navigator.pop(context)),
-                BreadcrumbItem(label: "Sites", onTap: () => Navigator.pop(context)),
-                BreadcrumbItem(label: "Plots", onTap: () => Navigator.pop(context)),
-                BreadcrumbItem(label: "Customer"),
-              ],
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AddPaymentScreen(
+                siteId: widget.siteId,
+                plotId: widget.plotId,
+              ),
             ),
-          ),
-
-          Expanded(
-            child: FutureBuilder<DocumentSnapshot>(
-              future: FirebaseFirestore.instance
-                  .collection('sites')
-                  .doc(widget.siteId)
-                  .collection('plots')
-                  .doc(widget.plotId)
-                  .collection('customer')
-                  .doc('details')
-                  .get(),
+          );
+        },
+        icon: const Icon(Icons.add),
+        label: const Text('Add Payment'),
+      ),
+      body: FutureBuilder(
+              future: _customerService.getCustomerDetails(
+                siteId: widget.siteId,
+                plotId: widget.plotId,
+              ),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
                 if (!snapshot.hasData || !snapshot.data!.exists) {
-                  return const Center(child: Text("No Customer Assigned"));
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.person_off_outlined,
+                            size: 64, color: Colors.grey.shade400),
+                        const SizedBox(height: 12),
+                        const Text('No customer assigned to this plot'),
+                        if (widget.role == 'admin') ...[
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => AddCustomerScreen(
+                                    siteId: widget.siteId,
+                                    plotId: widget.plotId,
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.person_add),
+                            label: const Text('Add Customer'),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
                 }
 
-                final data = snapshot.data!.data() as Map<String, dynamic>;
+                final customer =
+                    CustomerModel.fromMap(snapshot.data!.data() ?? {});
 
-                int totalPrice = data['totalPrice'] ?? 0;
-                int totalPaid = data['totalPaid'] ?? 0;
-                int remaining = data['remaining'] ?? 0;
+                if (_paymentMonths.isEmpty) {
+                  _loadPaymentChart();
+                }
 
-                double progress = totalPrice > 0 ? totalPaid / totalPrice : 0;
-
+                final totalPrice = customer.totalPrice;
+                final totalPaid = customer.totalPaid;
+                final remaining = customer.remaining;
                 DateTime? nextEmi;
-                bool emiDue = false;
-
-                if (data['nextEmiDate'] != null) {
-                  nextEmi = (data['nextEmiDate'] as Timestamp).toDate();
-                  if (DateTime.now().isAfter(nextEmi)) emiDue = true;
+                var emiDue = false;
+                if (customer.nextEmiDate != null) {
+                  nextEmi = customer.nextEmiDate;
+                  emiDue = DateTime.now().isAfter(customer.nextEmiDate!);
                 }
 
                 return SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 88),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-
-                      Text("Name: ${data['name'] ?? '-'}"),
-                      Text("Phone: ${data['phone'] ?? '-'}"),
-
-                      const SizedBox(height: 15),
-
-                      // ✅ DOCUMENT BUTTON ADDED
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.upload_file),
-                        label: const Text("Upload Documents"),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => DocumentUploadScreen(
-                                customerId: customerId,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-
-                      const SizedBox(height: 15),
-
                       Card(
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                         child: Padding(
-                          padding: const EdgeInsets.all(15),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          padding: const EdgeInsets.all(18),
+                          child: Row(
                             children: [
-                              Text("Total Price: ₹ $totalPrice"),
-                              Text("Total Paid: ₹ $totalPaid"),
-                              Text("Remaining: ₹ $remaining"),
-                              const SizedBox(height: 10),
-                              LinearProgressIndicator(value: progress),
+                              CircleAvatar(
+                                radius: 32,
+                                backgroundColor: const Color(0xFF1E3A8A),
+                                child: Text(
+                                  customer.name.isNotEmpty
+                                      ? customer.name[0].toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      customer.name.isEmpty
+                                          ? 'Unnamed customer'
+                                          : customer.name,
+                                      style: const TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      customer.phone.isEmpty
+                                          ? 'No phone'
+                                          : customer.phone,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (customer.phone.isNotEmpty)
+                                IconButton(
+                                  onPressed: () => _callCustomer(customer.phone),
+                                  icon: const Icon(Icons.phone, color: Colors.green),
+                                  tooltip: 'Call customer',
+                                ),
                             ],
                           ),
                         ),
                       ),
-
-                      const SizedBox(height: 10),
-
-                      if (nextEmi != null)
-                        Text(
-                          "Next EMI: ${nextEmi.day}/${nextEmi.month}/${nextEmi.year}",
-                          style: TextStyle(
-                            color: emiDue ? Colors.red : Colors.black,
-                            fontWeight:
-                                emiDue ? FontWeight.bold : FontWeight.normal,
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => DocumentUploadScreen(
+                                      siteId: widget.siteId,
+                                      plotId: widget.plotId,
+                                      customerId: customerId,
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.folder_open),
+                              label: const Text('Documents'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      ProgressSummaryCard(
+                        title: 'Plot payment progress',
+                        total: totalPrice,
+                        paid: totalPaid,
+                        remaining: remaining,
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFDBEAFE)),
+                        ),
+                        child: PropertyCollectionsChart(
+                          buckets: _paymentMonths,
+                          year: _chartYear,
+                          selectedMonth: _selectedPayMonth,
+                          barColor: const Color(0xFF2563EB),
+                          onYearChanged: (y) {
+                            setState(() {
+                              _chartYear = y;
+                              _selectedPayMonth = null;
+                              _paymentMonths = {};
+                            });
+                            _loadPaymentChart();
+                          },
+                          onMonthSelected: (m) =>
+                              setState(() => _selectedPayMonth = m),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          StatCard(
+                            label: 'EMI day',
+                            value: '${customer.emiDay}',
+                            icon: Icons.event,
+                          ),
+                          const SizedBox(width: 10),
+                          StatCard(
+                            label: 'Next EMI',
+                            value: nextEmi != null
+                                ? '${nextEmi.day}/${nextEmi.month}/${nextEmi.year}'
+                                : '—',
+                            icon: Icons.notifications_active,
+                            accentColor: emiDue ? Colors.red : null,
+                          ),
+                        ],
+                      ),
+                      if (emiDue && nextEmi != null)
+                        Container(
+                          margin: const EdgeInsets.only(top: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.red.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.warning_amber, color: Colors.red),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'EMI was due on ${nextEmi.day}/${nextEmi.month}/${nextEmi.year}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.red,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-
-                      const SizedBox(height: 25),
+                      const SizedBox(height: 24),
                       const Text(
-                        "Payment History",
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        'Payment history',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 10),
-
-                      StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance
-                            .collection('sites')
-                            .doc(widget.siteId)
-                            .collection('plots')
-                            .doc(widget.plotId)
-                            .collection('customer')
-                            .doc('details')
-                            .collection('payments')
-                            .orderBy('date', descending: true)
-                            .snapshots(),
+                      StreamBuilder(
+                        stream: _customerService.streamPayments(
+                          siteId: widget.siteId,
+                          plotId: widget.plotId,
+                        ),
                         builder: (context, paymentSnapshot) {
                           if (!paymentSnapshot.hasData ||
                               paymentSnapshot.data!.docs.isEmpty) {
-                            return const Text("No Payments Yet");
+                            return Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Center(
+                                  child: Text(
+                                    'No payments yet. Tap Add Payment below.',
+                                    style: TextStyle(color: Colors.grey.shade600),
+                                  ),
+                                ),
+                              ),
+                            );
                           }
 
                           return Column(
-                            children:
-                                paymentSnapshot.data!.docs.map((paymentDoc) {
-                              final payment =
-                                  paymentDoc.data() as Map<String, dynamic>;
-
-                              Timestamp? ts = payment['date'];
-                              DateTime? date = ts?.toDate();
+                            children: paymentSnapshot.data!.docs.map((paymentDoc) {
+                              final payment = paymentDoc.data();
+                              final ts = payment['date'];
+                              final date = ts is Timestamp ? ts.toDate() : null;
+                              final mode = payment['mode']?.toString() ?? 'Cash';
 
                               return Card(
-                                margin: const EdgeInsets.symmetric(vertical: 6),
-                                elevation: 3,
+                                margin: const EdgeInsets.only(bottom: 10),
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  side: BorderSide(color: Colors.grey.shade200),
+                                ),
                                 child: ListTile(
-                                  leading: const CircleAvatar(
-                                    backgroundColor: Color(0xFF1E3C72),
-                                    child: Icon(Icons.payment, color: Colors.white),
+                                  leading: CircleAvatar(
+                                    backgroundColor:
+                                        const Color(0xFF1E3A8A).withValues(alpha: 0.12),
+                                    child: const Icon(
+                                      Icons.payments,
+                                      color: Color(0xFF1E3A8A),
+                                    ),
                                   ),
                                   title: Text(
-                                    "₹ ${payment['amount'] ?? 0}",
+                                    '₹ ${payment['amount'] ?? 0}',
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
+                                      fontSize: 17,
                                     ),
                                   ),
                                   subtitle: Text(
                                     date != null
-                                        ? "${date.day}/${date.month}/${date.year}  |  ${payment['mode'] ?? 'Cash'}"
-                                        : "No Date  |  ${payment['mode'] ?? 'Cash'}",
+                                        ? '${date.day}/${date.month}/${date.year} · $mode'
+                                        : mode,
                                   ),
-                                  trailing: widget.role == "admin"
+                                  trailing: widget.role == 'admin'
                                       ? IconButton(
-                                          icon: const Icon(Icons.delete,
-                                              color: Colors.red),
+                                          icon: const Icon(
+                                            Icons.delete_outline,
+                                            color: Colors.red,
+                                          ),
                                           onPressed: () =>
                                               deletePayment(paymentDoc.id),
                                         )
@@ -323,9 +476,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                 );
               },
             ),
-          ),
-        ],
-      ),
     );
   }
 }

@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 import 'services/notification_service.dart';
-import 'services/emi_checker.dart';
 import 'services/inactivity_service.dart';
 import 'auth_gate.dart';
 
@@ -15,9 +13,10 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  // Initialize services AFTER Firebase
-  await NotificationService.init();
-  await EmiChecker.checkEmiDue();
+  // Notification setup should not block the app from starting.
+  try {
+    await NotificationService.init();
+  } catch (_) {}
 
   runApp(const MyApp());
 }
@@ -105,24 +104,8 @@ class MyApp extends StatelessWidget {
           foregroundColor: Colors.white,
         ),
       ),
-      home: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              body: Center(
-                child: CircularProgressIndicator(),
-              ),
-            );
-          }
-
-          // Start inactivity timer once UI is ready
-          InactivityService.startTimer(context);
-
-          return ActivityWrapper(
-            child: const AuthGate(),
-          );
-        },
+      home: const ActivityWrapper(
+        child: AuthGate(),
       ),
     );
   }

@@ -3,14 +3,12 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 class PdfService {
-
   static Future<void> generateLedgerPdf(
-      String name,
-      double principal,
-      double interestRate,
-      List installments,
+    String name,
+    double principal,
+    double interestRate,
+    List installments,
   ) async {
-
     final pdf = pw.Document();
 
     pdf.addPage(
@@ -19,7 +17,6 @@ class PdfService {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-
               pw.Text(
                 "Loan Ledger",
                 style: pw.TextStyle(
@@ -27,25 +24,14 @@ class PdfService {
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
-
               pw.SizedBox(height: 20),
-
               pw.Text("Customer: $name"),
               pw.Text("Principal: ₹$principal"),
               pw.Text("Interest Rate: $interestRate %"),
-
               pw.SizedBox(height: 20),
-
-              pw.Text("Installments",
-                  style: pw.TextStyle(fontSize: 18)),
-
-              pw.Table.fromTextArray(
-                headers: [
-                  "Date",
-                  "Amount",
-                  "Principal Paid",
-                  "Interest Paid"
-                ],
+              pw.Text("Installments", style: pw.TextStyle(fontSize: 18)),
+              pw.TableHelper.fromTextArray(
+                headers: ["Date", "Amount", "Principal Paid", "Interest Paid"],
                 data: installments.map((e) {
                   return [
                     e['date'],

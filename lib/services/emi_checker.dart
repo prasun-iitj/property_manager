@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../constants/firestore_paths.dart';
 import 'notification_service.dart';
 
 class EmiChecker {
@@ -6,9 +7,9 @@ class EmiChecker {
   static Future checkEmiDue() async {
 
     var lending = await FirebaseFirestore.instance
-        .collection('ledger')
-        .doc('data')
-        .collection('lending')
+        .collection(FirestorePaths.ledgerRoot)
+        .doc(FirestorePaths.ledgerDataDoc)
+        .collection(FirestorePaths.lending)
         .get();
 
     DateTime now = DateTime.now();

@@ -3,9 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter/foundation.dart';
-import 'dashboard_screen.dart';
-import 'site_list_screen.dart';
-
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -15,7 +12,6 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-
   final email = TextEditingController();
   final password = TextEditingController();
 
@@ -31,9 +27,7 @@ class _LoginScreenState extends State<LoginScreen> {
   /// EMAIL LOGIN
 
   Future<void> login() async {
-
     if (email.text.trim().isEmpty || password.text.trim().isEmpty) {
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Enter email and password")),
       );
@@ -44,16 +38,12 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => isLoading = true);
 
     try {
-
-      var userCredential =
-          await FirebaseAuth.instance.signInWithEmailAndPassword(
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email.text.trim(),
         password: password.text.trim(),
       );
-
-      await _navigateUser(userCredential.user!.uid);
-
     } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
 
       String message = "Login Failed";
 
@@ -68,113 +58,90 @@ class _LoginScreenState extends State<LoginScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
       );
-
     } catch (e) {
+      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Something went wrong")),
       );
-
     } finally {
-
       if (mounted) {
         setState(() => isLoading = false);
       }
-
     }
   }
 
   /// GOOGLE LOGIN
 
-Future<void> signInWithGoogle() async {
-  try {
+  Future<void> signInWithGoogle() async {
+    if (mounted) {
+      setState(() => isLoading = true);
+    }
 
-    UserCredential userCredential;
+    try {
+      UserCredential userCredential;
 
-    if (kIsWeb) {
+      if (kIsWeb) {
+        // Web login
+        GoogleAuthProvider googleProvider = GoogleAuthProvider();
 
-      // Web login
-      GoogleAuthProvider googleProvider = GoogleAuthProvider();
+        userCredential =
+            await FirebaseAuth.instance.signInWithPopup(googleProvider);
+      } else {
+        // Android / iOS login
+        final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
 
-      userCredential =
-          await FirebaseAuth.instance.signInWithPopup(googleProvider);
+        if (googleUser == null) return;
 
-    } else {
+        final GoogleSignInAuthentication googleAuth =
+            await googleUser.authentication;
 
-      // Android / iOS login
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+        final credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
 
-      if (googleUser == null) return;
+        userCredential =
+            await FirebaseAuth.instance.signInWithCredential(credential);
+      }
 
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
+      /// USER INFO
+      final user = userCredential.user;
 
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
+      if (user == null) return;
+
+      final userDoc =
+          FirebaseFirestore.instance.collection('users').doc(user.uid);
+
+      final doc = await userDoc.get();
+
+      /// CREATE USER IF NOT EXISTS
+      if (!doc.exists) {
+        await userDoc.set({
+          "email": user.email,
+          "role": "staff", // default role
+          "createdAt": FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text("Google sign-in failed. Please try again.")),
       );
-
-      userCredential =
-          await FirebaseAuth.instance.signInWithCredential(credential);
+    } finally {
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
-
-    /// USER INFO
-    final user = userCredential.user;
-
-    if (user == null) return;
-
-    final userDoc =
-        FirebaseFirestore.instance.collection('users').doc(user.uid);
-
-    final doc = await userDoc.get();
-
-    /// CREATE USER IF NOT EXISTS
-    if (!doc.exists) {
-
-      await userDoc.set({
-        "email": user.email,
-        "role": "staff", // default role
-        "createdAt": FieldValue.serverTimestamp(),
-      });
-
-    }
-
-  } catch (e) {
-
-    print("Google login error: $e");
-
-  }
-}
-  /// NAVIGATION BASED ON ROLE
-
-  Future<void> _navigateUser(String uid) async {
-
-    var doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .get();
-
-    String role = doc['role'];
-
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            role == "admin"
-                ? const DashboardScreen()
-                : SiteListScreen(role: role),
-      ),
-    );
   }
 
   /// RESET PASSWORD
 
   Future<void> resetPassword() async {
-
     String userEmail = email.text.trim();
 
     if (userEmail.isEmpty) {
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Enter your email first")),
       );
@@ -183,17 +150,16 @@ Future<void> signInWithGoogle() async {
     }
 
     try {
-
-      await FirebaseAuth.instance
-          .sendPasswordResetEmail(email: userEmail);
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: userEmail);
+      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("Password reset link sent to your email"),
         ),
       );
-
     } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
 
       String message = "Failed to send reset email";
 
@@ -204,54 +170,36 @@ Future<void> signInWithGoogle() async {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
       );
-
     }
   }
 
   @override
   Widget build(BuildContext context) {
-
     return Scaffold(
-
       body: Container(
-
         decoration: const BoxDecoration(
-
           gradient: LinearGradient(
             colors: [Color(0xFF1E3A8A), Color(0xFF2A5298)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
-
         ),
-
         child: Center(
-
           child: SingleChildScrollView(
-
             padding: const EdgeInsets.symmetric(horizontal: 28),
-
             child: Card(
-
               elevation: 8,
-
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
-
               child: Padding(
-
                 padding: const EdgeInsets.symmetric(
                   horizontal: 26,
                   vertical: 32,
                 ),
-
                 child: Column(
-
                   mainAxisSize: MainAxisSize.min,
-
                   children: [
-
                     const Icon(
                       Icons.home_work_rounded,
                       size: 60,
@@ -306,11 +254,8 @@ Future<void> signInWithGoogle() async {
                     SizedBox(
                       width: double.infinity,
                       height: 48,
-
                       child: ElevatedButton(
-
                         onPressed: isLoading ? null : login,
-
                         child: isLoading
                             ? const SizedBox(
                                 height: 20,
@@ -334,16 +279,12 @@ Future<void> signInWithGoogle() async {
                     SizedBox(
                       width: double.infinity,
                       height: 48,
-
                       child: OutlinedButton.icon(
-
                         onPressed: isLoading ? null : signInWithGoogle,
-
                         icon: const Icon(Icons.login),
                         label: const Text("Sign in with Google"),
                       ),
                     ),
-
                   ],
                 ),
               ),

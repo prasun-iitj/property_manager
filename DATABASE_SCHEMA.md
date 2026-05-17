@@ -1,103 +1,258 @@
-# Firestore Database Schema (Current V1 Reality)
+# Firestore & Storage Schema
 
-Property Manager App - implemented Firestore structure
+**Property Manager App** — canonical data model (V1 implementation)  
+**Maintainer:** Prasun Kumar Tripathi  
+**Source of truth for paths:** `lib/constants/firestore_paths.dart`
 
-Maintainer: Prasun Kumar Tripathi
+---
 
-This document reflects the schema currently used by the running codebase.
-It replaces older tenant-only examples that no longer match the app flow.
+## 1. Overview
 
-## General Rules
+| Store | Used for |
+|-------|----------|
+| **Cloud Firestore** | Structured data: sites, plots, customers, payments, documents metadata, ledger, users |
+| **Firebase Storage** | Binary files: customer documents (PDF, images) |
+| **Firebase Auth** | User identity (UID links to `users` collection) |
 
-- Use document IDs as primary identifiers.
-- Store timestamps with `FieldValue.serverTimestamp()` wherever possible.
-- Keep naming consistent before introducing V2 migrations.
-- Do not rename existing collections in-place without migration scripts.
+---
 
-## Core Operational Hierarchy (Implemented)
+## 2. Property hierarchy
 
-### Sites
+### 2.1 Sites
 
-- Collection: `sites`
-- Document: `{siteId}`
-- Typical fields (from UI flows): site metadata such as name/location and
-  creation timestamp.
+**Path:** `sites/{siteId}`
 
-### Plots Under Site
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Site / project name |
+| `location` | string | Location label |
+| `createdAt` | timestamp | Server timestamp on create |
 
-- Subcollection: `sites/{siteId}/plots`
-- Document: `{plotId}`
-- Typical fields: plot number/name, size, status, and context used by
-  plot/customer screens.
+### 2.2 Plots
 
-### Customers Under Plot
+**Path:** `sites/{siteId}/plots/{plotId}`
 
-- Subcollection: `sites/{siteId}/plots/{plotId}/customer`
-- Document: `{customerId}`
-- Typical fields used in screens: customer identity/contact and deal or
-  installment context.
+| Field | Type | Description |
+|-------|------|-------------|
+| `plotNumber` | string | **Unique per site** (app-enforced) |
+| `totalPrice` | number | Plot sale price (₹) |
+| `status` | string | e.g. `available` |
+| `createdAt` | timestamp | Optional |
 
-### Payments Under Customer
+**Business rule:** `PlotService.normalizePlotNumber()` prevents duplicates.
 
-- Subcollection:
-  `sites/{siteId}/plots/{plotId}/customer/{customerId}/payments`
-- Document: `{paymentId}`
-- Typical fields: amount, date, mode/notes, and calculated remaining
-  details shown in customer/payment screens.
+### 2.3 Customer (one per plot)
 
-## Ledger Domain (Implemented)
+**Path:** `sites/{siteId}/plots/{plotId}/customer/details`  
+**Document ID:** always `details` (constant `FirestorePaths.customerDetailsId`)
 
-Top-level container used in code:
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Customer name |
+| `phone` | string | Mobile (WhatsApp link after payment) |
+| `totalPrice` | number | Agreed plot price |
+| `totalPaid` | number | Sum of all payments |
+| `remaining` | number | `totalPrice - totalPaid` (may be **negative** = overpaid) |
+| `emiDay` | number | Day of month for EMI (1–28, default 5) |
+| `nextEmiDate` | timestamp | Next EMI due date |
+| `aadharUrl` | string | Optional Storage URL |
+| `updatedAt` | timestamp | On save |
 
-- `ledger/master`
+### 2.4 Payments
 
-Subcollections:
+**Path:** `sites/{siteId}/plots/{plotId}/customer/details/payments/{paymentId}`
 
-- `ledger/master/lending/{loanId}`
-- `ledger/master/borrowing/{borrowId}`
+| Field | Type | Description |
+|-------|------|-------------|
+| `amount` | number | Payment amount (₹) |
+| `date` | timestamp | Payment date |
+| `mode` | string | `Cash`, `UPI`, `Bank` |
+| `createdAt` | timestamp | Server timestamp |
 
-Installments:
+**Writes:** `CustomerService.addPayment` / `deletePayment` use **Firestore transactions** to update customer totals atomically.
 
-- `ledger/master/lending/{loanId}/installments/{installmentId}`
-- `ledger/master/borrowing/{borrowId}/installments/{installmentId}`
+### 2.5 Documents (metadata)
 
-Typical fields include principal/amount, interest, dates, paid amount,
-and status metadata used by dashboard, detail, and analytics screens.
+**Path:** `sites/{siteId}/plots/{plotId}/customer/details/documents/{documentId}`
 
-## User and Access Data
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Display name (user-renamable) |
+| `type` | string | `aadhar`, `pan`, `registry`, `other` |
+| `fileUrl` | string | Firebase Storage download URL |
+| `fileName` | string | Storage object name (includes extension) |
+| `uploadedAt` | string (ISO) | Upload time |
 
-- Collection: `users`
-- Document: `{uid}`
-- Important field: `role` (for example `admin` or `staff`) used for app
-  routing and action-level access behavior.
+**Storage path:** `customers/{customerId}/{fileName}` where `customerId = {siteId}_{plotId}`.
 
-## Documents
+**Legacy read path:** `customers/{legacyCustomerId}/documents` if v2 collection empty.
 
-Document features are implemented through document and storage services.
-Current code references a customer-document path under `customers` for the
-document module, while customer profile data also exists under nested
-`sites/.../customer/...` paths. This is a known area to unify in V2.
+---
 
-## Known Schema Inconsistencies to Fix in V2
+## 3. Ledger hierarchy
 
-- `customer` (singular) is used in site/plot flow; document service uses
-  `customers` (plural) path conventions.
-- Data definitions are implied by forms/screens but not fully centralized
-  as typed models for every entity.
-- Legacy docs referenced `tenants` as the main root collection, which is
-  not the primary active structure in current code.
+**Container:** `ledger/data` (document id: `data`)
 
-## Query Guidelines
+### 3.1 Lending loan
 
-- Use pagination and limits for list pages.
-- Add indexes for frequent filters/sorts (site, plot, date, role, status).
-- Avoid scanning full subcollections for analytics once data grows.
+**Path:** `ledger/data/lending/{loanId}`
 
-## Security Guidelines (Current + Target)
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Borrower name (person who owes you) |
+| `principal` | number | Original loan amount |
+| `rate` | number | Monthly interest rate (percent) |
+| `remainingPrincipal` | number | After replay (may be negative) |
+| `createdAt` | timestamp | Optional |
 
-Current behavior is role-aware at app level. V2 should align Firestore
-rules with the same role model:
+### 3.2 Borrowing loan
 
-- Admin: full operational access
-- Staff/Manager: limited write scope
-- Viewer (future): read-only access
+**Path:** `ledger/data/borrowing/{borrowId}`  
+Same field pattern as lending (money you borrowed).
+
+### 3.3 Installments
+
+**Paths:**
+
+- `ledger/data/lending/{loanId}/installments/{installmentId}`
+- `ledger/data/borrowing/{borrowId}/installments/{installmentId}`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `amount` | number | Payment amount |
+| `date` | timestamp | Payment date |
+| `interestPaid` | number | Portion to interest (computed on save) |
+| `principalPaid` | number | Portion to principal |
+| `createdAt` | timestamp | Optional |
+
+**Recalculation:** `LedgerService` replays all installments by date and updates loan `remainingPrincipal`.
+
+> **Deprecated path in old docs:** `ledger/master/...` — not used by current app.
+
+---
+
+## 4. Users & access control
+
+**Path:** `users/{uid}` (Firebase Auth UID)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `role` | string | `admin` or `staff` |
+| (other) | any | Email display name etc. as needed |
+
+**Routing:**
+
+- `admin` → `DashboardScreen`
+- `staff` → `SiteListScreen`
+
+---
+
+## 5. Collection group queries
+
+| Query | Used by |
+|-------|---------|
+| `collectionGroup('payments')` | `DashboardService`, `PropertyAnalyticsService` — monthly collections |
+| All payments across sites for stats/charts | |
+
+**Index:** May require composite indexes as data grows (Firebase console prompts).
+
+---
+
+## 6. Firebase Storage layout
+
+```
+customers/
+  {siteId}_{plotId}/
+    {type}_{timestamp}.pdf
+    {type}_{timestamp}.jpg
+    ...
+```
+
+**Content-Type** set from extension: `application/pdf`, `image/jpeg`, `image/png`.
+
+**Security:** `storage.rules` — authenticated users only.
+
+**Web CORS:** Apply `cors.json` to bucket for `getData()` / XHR from localhost.
+
+---
+
+## 7. Security rules summary
+
+See `firestore.rules`:
+
+| Collection | Read | Write |
+|------------|------|-------|
+| `users/{uid}` | Self | Admin only |
+| `sites`, `plots` | Staff+Admin | Admin only |
+| `customer`, `payments`, `documents` | Staff+Admin | Staff+Admin |
+| `ledger/**` | Staff+Admin | Staff+Admin |
+| `customers/**` (legacy) | Staff+Admin | Staff+Admin |
+
+Deploy: `firebase deploy --only firestore:rules,storage`
+
+---
+
+## 8. Data consistency rules
+
+| Operation | Consistency |
+|-----------|-------------|
+| Add/delete plot payment | Transaction on customer + payment doc |
+| Add/delete ledger installment | Transaction + full replay |
+| Delete site | Batch delete plots, customer subcollections, Storage files |
+| Document delete | Firestore doc + Storage file (best effort) |
+
+---
+
+## 9. Migration & legacy notes
+
+| Item | Status |
+|------|--------|
+| `customers/{id}/documents` | Legacy read only |
+| `ledger/master` | Do not use; migrate to `ledger/data` if old data exists |
+| Tenant-based schema in old README | Replaced by sites/plots/customer |
+
+---
+
+## 10. Recommended Firestore indexes
+
+Create when Firebase console requests them:
+
+- `documents` ordered by `uploadedAt` descending (per customer)
+- `payments` ordered by `date` descending (per customer)
+- `collectionGroup(payments)` filtered by `date` range (analytics at scale)
+
+---
+
+## 11. Example document tree
+
+```
+sites/abc123
+  name: "Green Valley"
+  plots/plot456
+    plotNumber: "12"
+    totalPrice: 1000000
+    customer/details
+      name: "Ravi"
+      totalPrice: 1000000
+      totalPaid: 300000
+      remaining: 700000
+      payments/pay001
+        amount: 100000
+        date: 2026-03-01
+      documents/doc001
+        name: "Aadhar Card"
+        type: "aadhar"
+        fileUrl: "https://firebasestorage.googleapis.com/..."
+
+ledger/data
+  lending/loan001
+    name: "Amit"
+    principal: 20000
+    rate: 2
+    remainingPrincipal: -80000
+    installments/inst001
+      amount: 10000
+      date: 2026-01-15
+      interestPaid: ...
+      principalPaid: ...
+```

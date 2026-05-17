@@ -25,7 +25,6 @@ class StorageService {
 
       return downloadUrl;
     } catch (e) {
-      print("Upload Error: $e");
       return null;
     }
   }
@@ -36,7 +35,7 @@ class StorageService {
       final ref = _storage.refFromURL(fileUrl);
       await ref.delete();
     } catch (e) {
-      print("Delete Error: $e");
+      // Ignore delete failures to avoid breaking user flow.
     }
   }
 }

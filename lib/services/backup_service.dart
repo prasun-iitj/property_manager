@@ -1,22 +1,16 @@
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../constants/firestore_paths.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 class BackupService {
-
   static Future<void> exportLedgerBackup() async {
-
     List<List<String>> rows = [];
 
-    rows.add([
-      "Type",
-      "Name",
-      "Principal",
-      "Interest Rate",
-      "Remaining Principal"
-    ]);
+    rows.add(
+        ["Type", "Name", "Principal", "Interest Rate", "Remaining Principal"]);
 
     var lending = await FirebaseFirestore.instance
         .collection('ledger')
@@ -25,7 +19,6 @@ class BackupService {
         .get();
 
     for (var loan in lending.docs) {
-
       var data = loan.data();
 
       rows.add([
@@ -35,17 +28,15 @@ class BackupService {
         data['interestRate'].toString(),
         data['remainingPrincipal'].toString(),
       ]);
-
     }
 
     var borrowing = await FirebaseFirestore.instance
-        .collection('ledger')
-        .doc('data')
-        .collection('borrowing')
+        .collection(FirestorePaths.ledgerRoot)
+        .doc(FirestorePaths.ledgerDataDoc)
+        .collection(FirestorePaths.borrowing)
         .get();
 
     for (var loan in borrowing.docs) {
-
       var data = loan.data();
 
       rows.add([
@@ -55,7 +46,6 @@ class BackupService {
         data['interestRate'].toString(),
         data['remainingPrincipal'].toString(),
       ]);
-
     }
 
     String csv = rows.map((e) => e.join(",")).join("\n");
@@ -68,8 +58,11 @@ class BackupService {
 
     await file.writeAsString(csv);
 
-    await Share.shareXFiles([XFile(file.path)], text: "Ledger Backup");
-
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(file.path)],
+        text: "Ledger Backup",
+      ),
+    );
   }
-
 }

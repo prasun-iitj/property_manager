@@ -1,0 +1,11 @@
+{
+  "project": "property_manager",
+  "release": "1.1.0",
+  "tag": "v1.1.0-cursor",
+  "branch": "feature/v2-upgrade",
+  "date": "2026-05-18",
+  "developedWith": "Cursor",
+  "cursorProductUrl": "https://cursor.com",
+  "description": "v1.1.0 feature set and documentation were built using Cursor AI-assisted IDE (Agent mode).",
+  "maintainer": "Prasun Kumar Tripathi"
+}

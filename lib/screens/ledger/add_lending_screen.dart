@@ -9,7 +9,6 @@ class AddLendingScreen extends StatefulWidget {
 }
 
 class _AddLendingScreenState extends State<AddLendingScreen> {
-
   final nameController = TextEditingController();
   final principalController = TextEditingController();
   final interestController = TextEditingController();
@@ -19,7 +18,6 @@ class _AddLendingScreenState extends State<AddLendingScreen> {
   bool loading = false;
 
   void calculateEmi() {
-
     if (principalController.text.isEmpty ||
         interestController.text.isEmpty ||
         durationController.text.isEmpty) {
@@ -32,19 +30,18 @@ class _AddLendingScreenState extends State<AddLendingScreen> {
 
     if (months == 0) return;
 
-    int emi = ((principal + (principal * rate / 100 * months)) / months).round();
+    int emi =
+        ((principal + (principal * rate / 100 * months)) / months).round();
 
     emiController.text = emi.toString();
   }
 
   Future<void> saveLoan() async {
-
     if (nameController.text.trim().isEmpty ||
         principalController.text.isEmpty ||
         interestController.text.isEmpty ||
         emiController.text.isEmpty ||
         durationController.text.isEmpty) {
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Please fill all fields")),
       );
@@ -55,18 +52,32 @@ class _AddLendingScreenState extends State<AddLendingScreen> {
     setState(() => loading = true);
 
     try {
+      final principal = int.tryParse(principalController.text.trim());
+      final rate = int.tryParse(interestController.text.trim());
+      final emi = int.tryParse(emiController.text.trim());
+      final months = int.tryParse(durationController.text.trim());
 
-      int principal = int.parse(principalController.text);
-      int rate = int.parse(interestController.text);
-      int emi = int.parse(emiController.text);
-      int months = int.parse(durationController.text);
+      if (principal == null ||
+          rate == null ||
+          emi == null ||
+          months == null ||
+          principal <= 0 ||
+          rate < 0 ||
+          emi <= 0 ||
+          months <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Enter valid positive numeric values"),
+          ),
+        );
+        return;
+      }
 
       await FirebaseFirestore.instance
           .collection('ledger')
           .doc('data')
           .collection('lending')
           .add({
-
         "name": nameController.text.trim(),
         "principal": principal,
         "remainingPrincipal": principal,
@@ -77,23 +88,19 @@ class _AddLendingScreenState extends State<AddLendingScreen> {
         "createdAt": Timestamp.now(),
         "status": "active",
         "totalPaid": 0
-
       });
 
       if (mounted) Navigator.pop(context);
-
     } catch (e) {
+      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Failed to save loan")),
       );
-
     } finally {
-
       if (mounted) {
         setState(() => loading = false);
       }
-
     }
   }
 
@@ -104,45 +111,41 @@ class _AddLendingScreenState extends State<AddLendingScreen> {
     TextInputType type = TextInputType.text,
     Function(String)? onChanged,
   }) {
-
     return Padding(
-
       padding: const EdgeInsets.only(bottom: 16),
-
       child: TextField(
-
         controller: controller,
         keyboardType: type,
         onChanged: onChanged,
-
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: Icon(icon),
         ),
-
       ),
     );
   }
 
   @override
+  void dispose() {
+    nameController.dispose();
+    principalController.dispose();
+    interestController.dispose();
+    emiController.dispose();
+    durationController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-
     return Scaffold(
-
       appBar: AppBar(
         title: const Text("Add Lending"),
       ),
-
       body: SingleChildScrollView(
-
         padding: const EdgeInsets.all(20),
-
         child: Column(
-
           crossAxisAlignment: CrossAxisAlignment.start,
-
           children: [
-
             const Text(
               "Loan Details",
               style: TextStyle(
@@ -150,15 +153,12 @@ class _AddLendingScreenState extends State<AddLendingScreen> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-
             const SizedBox(height: 20),
-
             buildField(
               nameController,
               "Person Name",
               Icons.person,
             ),
-
             buildField(
               principalController,
               "Principal Amount",
@@ -166,7 +166,6 @@ class _AddLendingScreenState extends State<AddLendingScreen> {
               type: TextInputType.number,
               onChanged: (_) => calculateEmi(),
             ),
-
             buildField(
               interestController,
               "Interest % per month",
@@ -174,7 +173,6 @@ class _AddLendingScreenState extends State<AddLendingScreen> {
               type: TextInputType.number,
               onChanged: (_) => calculateEmi(),
             ),
-
             buildField(
               durationController,
               "Duration (Months)",
@@ -182,24 +180,18 @@ class _AddLendingScreenState extends State<AddLendingScreen> {
               type: TextInputType.number,
               onChanged: (_) => calculateEmi(),
             ),
-
             buildField(
               emiController,
               "EMI Amount",
               Icons.payments,
               type: TextInputType.number,
             ),
-
             const SizedBox(height: 20),
-
             SizedBox(
               width: double.infinity,
               height: 50,
-
               child: ElevatedButton(
-
                 onPressed: loading ? null : saveLoan,
-
                 child: loading
                     ? const CircularProgressIndicator(
                         color: Colors.white,
@@ -208,10 +200,8 @@ class _AddLendingScreenState extends State<AddLendingScreen> {
                         "Save Loan",
                         style: TextStyle(fontSize: 16),
                       ),
-
               ),
             ),
-
           ],
         ),
       ),

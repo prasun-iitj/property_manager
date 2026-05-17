@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && userRole() == 'admin';
+    }
+
+    function isStaffOrAdmin() {
+      return isSignedIn() && (userRole() == 'admin' || userRole() == 'staff');
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow write: if isAdmin();
+    }
+
+    match /sites/{siteId} {
+      allow read: if isStaffOrAdmin();
+      allow write: if isAdmin();
+
+      match /plots/{plotId} {
+        allow read: if isStaffOrAdmin();
+        allow write: if isAdmin();
+
+        match /customer/{customerId} {
+          allow read: if isStaffOrAdmin();
+          allow write: if isStaffOrAdmin();
+
+          match /payments/{paymentId} {
+            allow read: if isStaffOrAdmin();
+            allow write: if isStaffOrAdmin();
+          }
+
+          match /documents/{documentId} {
+            allow read: if isStaffOrAdmin();
+            allow write: if isStaffOrAdmin();
+          }
+        }
+      }
+    }
+
+    match /ledger/{ledgerDoc} {
+      allow read: if isStaffOrAdmin();
+      allow write: if isStaffOrAdmin();
+
+      match /lending/{loanId} {
+        allow read, write: if isStaffOrAdmin();
+        match /installments/{installmentId} {
+          allow read, write: if isStaffOrAdmin();
+        }
+      }
+
+      match /borrowing/{borrowId} {
+        allow read, write: if isStaffOrAdmin();
+        match /installments/{installmentId} {
+          allow read, write: if isStaffOrAdmin();
+        }
+      }
+    }
+
+    match /customers/{customerId} {
+      allow read, write: if isStaffOrAdmin();
+      match /documents/{documentId} {
+        allow read, write: if isStaffOrAdmin();
+      }
+    }
+  }
+}
