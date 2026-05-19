@@ -1,6 +1,6 @@
 {
-    "name": "property_manager",
-    "short_name": "property_manager",
+    "name": "Property Manager",
+    "short_name": "Property Mgr",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

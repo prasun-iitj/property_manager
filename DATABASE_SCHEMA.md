@@ -1,6 +1,6 @@
 # Firestore & Storage Schema
 
-**Property Manager App** — canonical data model (V1 implementation)  
+**Property Manager App** — canonical data model (v1.2)  
 **Maintainer:** Prasun Kumar Tripathi  
 **Source of truth for paths:** `lib/constants/firestore_paths.dart`
 
@@ -138,12 +138,63 @@ Same field pattern as lending (money you borrowed).
 | Field | Type | Description |
 |-------|------|-------------|
 | `role` | string | `admin` or `staff` |
-| (other) | any | Email display name etc. as needed |
+| `email` | string | Login email |
+| `displayName` | string | Optional display name |
+| `disabled` | boolean | `true` if account disabled by admin |
+| `createdAt` | timestamp | When user was provisioned |
+| `createdBy` | string | Admin UID who created (optional) |
+
+**Writes:** Create/update/disable users via **Cloud Functions** only (not direct client writes except own profile read).
 
 **Routing:**
 
 - `admin` → `DashboardScreen`
 - `staff` → `SiteListScreen`
+
+---
+
+## 4.1 System configuration
+
+**Path:** `config/system` (single document)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `superAdminEmail` | string | Email that receives OTP for new admin / promote |
+| `backupEnabled` | boolean | Daily scheduled backup on/off |
+| `updatedAt` | timestamp | Last settings change |
+
+**Writes:** Admin via `updateBackupSettings` / `registerSuperAdminEmail` callable functions.
+
+---
+
+## 4.2 Backup history
+
+**Path:** `backupHistory/{backupId}`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `createdAt` | timestamp | Run time |
+| `storagePath` | string | e.g. `backups/{timestamp}/firestore-export.json` |
+| `status` | string | `success` / `failed` |
+| `sizeBytes` | number | Optional export size |
+| `triggeredBy` | string | `scheduled` / `manual` / admin uid |
+
+**Storage:** Full JSON export under `backups/{timestamp}/` in default bucket.
+
+---
+
+## 4.3 OTP (server-only)
+
+**Path:** `systemOtp/{otpId}`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `hash` | string | SHA-256 of 6-digit code |
+| `purpose` | string | e.g. `create_admin`, `promote_admin` |
+| `expiresAt` | timestamp | ~10 minute TTL |
+| `used` | boolean | Invalid after use |
+
+**Client:** Never reads/writes directly; verified in Cloud Functions.
 
 ---
 
@@ -166,6 +217,10 @@ customers/
     {type}_{timestamp}.pdf
     {type}_{timestamp}.jpg
     ...
+
+backups/
+  {timestamp}/
+    firestore-export.json
 ```
 
 **Content-Type** set from extension: `application/pdf`, `image/jpeg`, `image/png`.
@@ -187,8 +242,11 @@ See `firestore.rules`:
 | `customer`, `payments`, `documents` | Staff+Admin | Staff+Admin |
 | `ledger/**` | Staff+Admin | Staff+Admin |
 | `customers/**` (legacy) | Staff+Admin | Staff+Admin |
+| `config/system` | Admin | Functions / admin callable only |
+| `backupHistory` | Admin | Functions write; admin read |
+| `systemOtp` | Deny client | Functions only |
 
-Deploy: `firebase deploy --only firestore:rules,storage`
+Deploy: `firebase deploy --only firestore:rules,storage,functions`
 
 ---
 

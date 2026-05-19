@@ -3,6 +3,7 @@ import 'package:fl_chart/fl_chart.dart';
 
 import 'lending_list_screen.dart';
 import 'borrowing_list_screen.dart';
+import '../../services/app_cache.dart';
 import '../../services/backup_service.dart';
 import '../../services/dashboard_service.dart';
 import '../../utils/ledger_calculator.dart';
@@ -48,12 +49,29 @@ class _LedgerDashboardState extends State<LedgerDashboard> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _open(Widget screen) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+    if (mounted) _load(background: true);
+  }
+
+  Future<void> _load({bool force = false, bool background = false}) async {
+    final cachedOverview = AppCache.instance.dashboardLedger;
+    final cachedBuckets = AppCache.instance.ledgerMonthly(_year);
+    if (!force && cachedOverview != null && cachedBuckets != null) {
+      setState(() {
+        _overview = cachedOverview;
+        _buckets = cachedBuckets;
+        _loading = false;
+        _selectedMonth ??= _defaultHighlightMonth();
+      });
+    } else if (!background) {
+      setState(() => _loading = true);
+    }
+
     try {
       final results = await Future.wait([
-        _dashboard.loadLedgerOverview(),
-        _dashboard.loadLedgerMonthlyBreakdown(_year),
+        _dashboard.loadLedgerOverview(forceRefresh: force),
+        _dashboard.loadLedgerMonthlyBreakdown(_year, forceRefresh: force),
       ]);
       if (!mounted) return;
       setState(() {
@@ -163,10 +181,7 @@ class _LedgerDashboardState extends State<LedgerDashboard> {
             'Lending',
             Icons.trending_up,
             const Color(0xFF2563EB),
-            () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const LendingListScreen()),
-            ),
+            () => _open(const LendingListScreen()),
           ),
         ),
         const SizedBox(width: 10),
@@ -175,10 +190,7 @@ class _LedgerDashboardState extends State<LedgerDashboard> {
             'Borrowing',
             Icons.trending_down,
             const Color(0xFFDC2626),
-            () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const BorrowingListScreen()),
-            ),
+            () => _open(const BorrowingListScreen()),
           ),
         ),
         const SizedBox(width: 10),

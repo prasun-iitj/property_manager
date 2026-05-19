@@ -5,8 +5,12 @@ import 'ledger/ledger_dashboard.dart';
 import 'ledger/lending_list_screen.dart';
 import 'ledger/borrowing_list_screen.dart';
 import 'reports_screen.dart';
+import 'admin/manage_team_screen.dart';
+import 'admin/backup_settings_screen.dart';
+import '../services/app_cache.dart';
 import '../services/dashboard_service.dart';
 import '../utils/ledger_calculator.dart';
+import '../utils/session_actions.dart';
 import '../widgets/dashboard_zone.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -32,25 +36,74 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _load({bool force = false, bool background = false}) async {
+    final cachedProperty = AppCache.instance.dashboardProperty;
+    final cachedLedger = AppCache.instance.dashboardLedger;
+    if (!force && cachedProperty != null && cachedLedger != null) {
+      setState(() {
+        _property = cachedProperty;
+        _ledger = cachedLedger;
+        _loading = false;
+      });
+    } else if (!background) {
+      setState(() => _loading = true);
+    }
+
+    Object? loadError;
     try {
-      final results = await Future.wait([
-        _dashboardService.loadPropertyStats(),
-        _dashboardService.loadLedgerOverview(),
-      ]);
+      final propertyFuture =
+          _dashboardService.loadPropertyStats(forceRefresh: force);
+      final ledgerFuture =
+          _dashboardService.loadLedgerOverview(forceRefresh: force);
+      final property = await propertyFuture.catchError((e) {
+        loadError ??= e;
+        return const PropertyCollectionStats(
+          todayCollection: 0,
+          monthCollection: 0,
+          totalOutstanding: 0,
+          paymentCountThisMonth: 0,
+        );
+      });
+      final ledger = await ledgerFuture.catchError((e) {
+        loadError ??= e;
+        return const LedgerOverviewStats(
+          totalLentPrincipal: 0,
+          totalBorrowedPrincipal: 0,
+          totalLendingRemaining: 0,
+          totalBorrowingRemaining: 0,
+          interestEarned: 0,
+          interestPaid: 0,
+          overpaidLoansCount: 0,
+        );
+      });
       if (!mounted) return;
       setState(() {
-        _property = results[0] as PropertyCollectionStats;
-        _ledger = results[1] as LedgerOverviewStats;
+        _property = property;
+        _ledger = ledger;
       });
+      if (loadError != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Some stats could not load: $loadError'),
+            backgroundColor: Colors.orange.shade800,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _logout() async {
-    await FirebaseAuth.instance.signOut();
+    await signOutCompletely();
+  }
+
+  Future<void> _pushAndRefresh(Widget screen) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => screen),
+    );
+    if (mounted) _load(background: true);
   }
 
   @override
@@ -63,6 +116,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         backgroundColor: const Color(0xFF0F172A),
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.groups_outlined),
+            onPressed: () => _pushAndRefresh(const ManageTeamScreen()),
+            tooltip: 'Manage team',
+          ),
+          IconButton(
+            icon: const Icon(Icons.cloud_upload_outlined),
+            onPressed: () => _pushAndRefresh(const BackupSettingsScreen()),
+            tooltip: 'Cloud backup',
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _load,
@@ -95,12 +158,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       const SizedBox(height: 12),
                       Expanded(
                         child: stacked
-                            ? Column(
+                            ? ListView(
                                 children: [
-                                  for (var i = 0; i < zones.length; i++) ...[
-                                    if (i > 0) const SizedBox(height: 8),
-                                    Expanded(child: zones[i]),
-                                  ],
+                                  SizedBox(
+                                    height: constraints.maxWidth < 400
+                                        ? 238
+                                        : 220,
+                                    child: zones[0],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  SizedBox(
+                                    height: constraints.maxWidth < 400
+                                        ? 318
+                                        : 288,
+                                    child: zones[1],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  SizedBox(
+                                    height: constraints.maxWidth < 400
+                                        ? 238
+                                        : 220,
+                                    child: zones[2],
+                                  ),
                                 ],
                               )
                             : Row(
@@ -176,57 +255,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
       accent: _propertyColors.first,
       onTap: p == null
           ? null
-          : () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const SiteListScreen(role: 'admin'),
-                ),
-              ),
-      stats: [
-        Expanded(
-          child: Row(
-            children: [
-              ZoneStatTile(
-                label: 'Collected today',
-                value: LedgerMoneyFormat.rupees(p?.todayCollection ?? 0),
-              ),
-              const SizedBox(width: 6),
-              ZoneStatTile(
-                label: 'This month',
-                value: LedgerMoneyFormat.rupees(p?.monthCollection ?? 0),
-              ),
-            ],
-          ),
+          : () => _pushAndRefresh(const SiteListScreen(role: 'admin')),
+      statsPanel: ZoneStats2x2(
+        topLeft: ZoneStatCell(
+          label: 'Collected today',
+          value: LedgerMoneyFormat.rupees(p?.todayCollection ?? 0),
         ),
-        Expanded(
-          child: Row(
-            children: [
-              ZoneStatTile(
-                label: 'Plot outstanding',
-                value: LedgerMoneyFormat.rupees(p?.totalOutstanding ?? 0),
-                valueColor: const Color(0xFFFECACA),
-              ),
-              const SizedBox(width: 6),
-              ZoneStatTile(
-                label: 'Payments (month)',
-                value: '${p?.paymentCountThisMonth ?? 0}',
-              ),
-            ],
-          ),
+        topRight: ZoneStatCell(
+          label: 'This month',
+          value: LedgerMoneyFormat.rupees(p?.monthCollection ?? 0),
         ),
-      ],
+        bottomLeft: ZoneStatCell(
+          label: 'Plot outstanding',
+          value: LedgerMoneyFormat.rupees(p?.totalOutstanding ?? 0),
+          valueColor: const Color(0xFFFECACA),
+        ),
+        bottomRight: ZoneStatCell(
+          label: 'Payments (month)',
+          value: '${p?.paymentCountThisMonth ?? 0}',
+        ),
+      ),
       actions: [
         ZoneActionButton(
           label: 'Property hub',
           icon: Icons.apartment,
           foreground: _propertyColors.first,
           background: Colors.white,
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const SiteListScreen(role: 'admin'),
-            ),
-          ),
+          onTap: () => _pushAndRefresh(const SiteListScreen(role: 'admin')),
         ),
       ],
     );
@@ -243,68 +298,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
       accent: _financeColors.first,
       onTap: l == null
           ? null
-          : () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const LedgerDashboard()),
-              ),
-      stats: [
-        Expanded(
-          child: Row(
-            children: [
-              ZoneStatTile(
-                label: 'You lent (balance)',
-                value: LedgerMoneyFormat.rupees(l?.totalLendingRemaining ?? 0),
-                valueColor: const Color(0xFFBBF7D0),
-              ),
-              const SizedBox(width: 6),
-              ZoneStatTile(
-                label: 'You owe (balance)',
-                value: LedgerMoneyFormat.rupees(l?.totalBorrowingRemaining ?? 0),
-                valueColor: const Color(0xFFFDE68A),
-              ),
-            ],
-          ),
+          : () => _pushAndRefresh(const LedgerDashboard()),
+      statsPanel: ZoneStats2x2(
+        topLeft: ZoneStatCell(
+          label: 'Lent balance',
+          value: LedgerMoneyFormat.rupees(l?.totalLendingRemaining ?? 0),
+          valueColor: const Color(0xFFBBF7D0),
         ),
-        Expanded(
-          child: Row(
-            children: [
-              ZoneStatTile(
-                label: 'Interest earned',
-                value: LedgerMoneyFormat.rupees(l?.interestEarned ?? 0),
-              ),
-              const SizedBox(width: 6),
-              ZoneStatTile(
-                label: 'Interest paid',
-                value: LedgerMoneyFormat.rupees(l?.interestPaid ?? 0),
-              ),
-            ],
-          ),
+        topRight: ZoneStatCell(
+          label: 'Owe balance',
+          value: LedgerMoneyFormat.rupees(l?.totalBorrowingRemaining ?? 0),
+          valueColor: const Color(0xFFFDE68A),
         ),
-        if (interestNet != 0 || (l?.overpaidLoansCount ?? 0) > 0)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(
-              '${interestNet >= 0 ? 'Interest surplus' : 'Interest deficit'}: '
-              '${LedgerMoneyFormat.rupees(interestNet.abs())}'
-              '${(l?.overpaidLoansCount ?? 0) > 0 ? ' · ${l!.overpaidLoansCount} overpaid' : ''}',
-              style: TextStyle(
-                fontSize: 10,
-                color: Colors.white.withValues(alpha: 0.9),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-      ],
+        bottomLeft: ZoneStatCell(
+          label: 'Interest earned',
+          value: LedgerMoneyFormat.rupees(l?.interestEarned ?? 0),
+        ),
+        bottomRight: ZoneStatCell(
+          label: 'Interest paid',
+          value: LedgerMoneyFormat.rupees(l?.interestPaid ?? 0),
+        ),
+        footnote: (interestNet != 0 || (l?.overpaidLoansCount ?? 0) > 0)
+            ? '${interestNet >= 0 ? 'Interest surplus' : 'Interest deficit'}: '
+                '${LedgerMoneyFormat.rupees(interestNet.abs())}'
+                '${(l?.overpaidLoansCount ?? 0) > 0 ? ' · ${l!.overpaidLoansCount} overpaid' : ''}'
+            : null,
+      ),
       actions: [
         ZoneActionButton(
           label: 'Ledger dashboard',
           icon: Icons.dashboard,
+          height: 32,
           foreground: _financeColors.first,
           background: Colors.white,
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const LedgerDashboard()),
-          ),
+          onTap: () => _pushAndRefresh(const LedgerDashboard()),
         ),
         Row(
           children: [
@@ -312,12 +339,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: ZoneActionButton(
                 label: 'Lending',
                 icon: Icons.trending_up,
+                height: 30,
                 foreground: _financeColors.first,
                 background: Colors.white.withValues(alpha: 0.92),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LendingListScreen()),
-                ),
+                onTap: () => _pushAndRefresh(const LendingListScreen()),
               ),
             ),
             const SizedBox(width: 6),
@@ -325,14 +350,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: ZoneActionButton(
                 label: 'Borrowing',
                 icon: Icons.trending_down,
+                height: 30,
                 foreground: _financeColors.first,
                 background: Colors.white.withValues(alpha: 0.85),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const BorrowingListScreen(),
-                  ),
-                ),
+                onTap: () => _pushAndRefresh(const BorrowingListScreen()),
               ),
             ),
           ],
@@ -353,53 +374,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
       icon: Icons.insights,
       gradient: _insightsColors,
       accent: _insightsColors.first,
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const ReportsScreen()),
+      onTap: () => _pushAndRefresh(const ReportsScreen()),
+      statsPanel: ZoneStats2x2(
+        topLeft: ZoneStatCell(
+          label: 'Ledger principal',
+          value: LedgerMoneyFormat.rupees(totalPrincipal),
+        ),
+        topRight: ZoneStatCell(
+          label: 'Property due',
+          value: LedgerMoneyFormat.rupees(p?.totalOutstanding ?? 0),
+        ),
+        bottomLeft: ZoneStatCell(
+          label: 'Month collections',
+          value: LedgerMoneyFormat.rupees(p?.monthCollection ?? 0),
+        ),
+        bottomRight: ZoneStatCell(
+          label: 'Lent / borrowed',
+          value:
+              '${LedgerMoneyFormat.rupees(l?.totalLentPrincipal ?? 0)} / ${LedgerMoneyFormat.rupees(l?.totalBorrowedPrincipal ?? 0)}',
+        ),
       ),
-      stats: [
-        Expanded(
-          child: Row(
-            children: [
-              ZoneStatTile(
-                label: 'Ledger principal',
-                value: LedgerMoneyFormat.rupees(totalPrincipal),
-              ),
-              const SizedBox(width: 6),
-              ZoneStatTile(
-                label: 'Property due',
-                value: LedgerMoneyFormat.rupees(p?.totalOutstanding ?? 0),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: Row(
-            children: [
-              ZoneStatTile(
-                label: 'Month collections',
-                value: LedgerMoneyFormat.rupees(p?.monthCollection ?? 0),
-              ),
-              const SizedBox(width: 6),
-              ZoneStatTile(
-                label: 'Lent vs borrowed',
-                value:
-                    '${LedgerMoneyFormat.rupees(l?.totalLentPrincipal ?? 0)} / ${LedgerMoneyFormat.rupees(l?.totalBorrowedPrincipal ?? 0)}',
-              ),
-            ],
-          ),
-        ),
-      ],
       actions: [
         ZoneActionButton(
           label: 'Open reports',
           icon: Icons.bar_chart,
           foreground: _insightsColors.first,
           background: Colors.white,
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const ReportsScreen()),
-          ),
+          onTap: () => _pushAndRefresh(const ReportsScreen()),
         ),
       ],
     );

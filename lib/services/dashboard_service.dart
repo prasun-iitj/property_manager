@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../constants/firestore_paths.dart';
+import 'app_cache.dart';
+import 'firestore_aggregate_helpers.dart';
 
 class PropertyCollectionStats {
   final int todayCollection;
@@ -88,20 +90,24 @@ class LedgerOverviewStats {
 class DashboardService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  Future<PropertyCollectionStats> loadPropertyStats() async {
+  Future<PropertyCollectionStats> loadPropertyStats({
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh) {
+      final cached = AppCache.instance.dashboardProperty;
+      if (cached != null) return cached;
+    }
+
     final now = DateTime.now();
     var todayTotal = 0;
     var monthTotal = 0;
     var monthPayments = 0;
     var outstanding = 0;
 
-    final paymentsSnap = await _db.collectionGroup(FirestorePaths.payments).get();
-
-    for (final doc in paymentsSnap.docs) {
-      final data = doc.data();
+    await FirestoreAggregateHelpers.forEachPayment(_db, (data) {
       final amount = _asInt(data['amount']);
       final ts = data['date'];
-      if (ts is! Timestamp) continue;
+      if (ts is! Timestamp) return;
       final date = ts.toDate();
 
       if (date.year == now.year && date.month == now.month) {
@@ -113,39 +119,58 @@ class DashboardService {
           date.day == now.day) {
         todayTotal += amount;
       }
-    }
+    });
 
     final sitesSnap = await _db.collection(FirestorePaths.sites).get();
+    final customerFutures = <Future<DocumentSnapshot<Map<String, dynamic>>>>[];
+
     for (final site in sitesSnap.docs) {
-      final plotsSnap = await site.reference.collection(FirestorePaths.plots).get();
+      final plotsSnap =
+          await site.reference.collection(FirestorePaths.plots).get();
       for (final plot in plotsSnap.docs) {
-        final customer = await plot.reference
-            .collection(FirestorePaths.customer)
-            .doc(FirestorePaths.customerDetailsId)
-            .get();
-        if (!customer.exists) continue;
-        outstanding += _asInt(customer.data()?['remaining']);
+        customerFutures.add(
+          plot.reference
+              .collection(FirestorePaths.customer)
+              .doc(FirestorePaths.customerDetailsId)
+              .get(),
+        );
       }
     }
 
-    return PropertyCollectionStats(
+    final customers = await Future.wait(customerFutures);
+    for (final customer in customers) {
+      if (!customer.exists) continue;
+      outstanding += _asInt(customer.data()?['remaining']);
+    }
+
+    final stats = PropertyCollectionStats(
       todayCollection: todayTotal,
       monthCollection: monthTotal,
       totalOutstanding: outstanding,
       paymentCountThisMonth: monthPayments,
     );
+    AppCache.instance.putDashboardProperty(stats);
+    return stats;
   }
 
   /// Monthly lending collections vs borrowing payments for [year] (1–12 keys).
-  Future<Map<int, LedgerMonthBucket>> loadLedgerMonthlyBreakdown(int year) async {
+  Future<Map<int, LedgerMonthBucket>> loadLedgerMonthlyBreakdown(
+    int year, {
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh) {
+      final cached = AppCache.instance.ledgerMonthly(year);
+      if (cached != null) return cached;
+    }
+
     final buckets = <int, LedgerMonthBucket>{
       for (var m = 1; m <= 12; m++) m: const LedgerMonthBucket(),
     };
 
     Future<void> scanCollection(String type, bool isLending) async {
-      final snap = await _ledgerCollection(type).get();
-      for (final loan in snap.docs) {
-        final inst = await loan.reference.collection(FirestorePaths.installments).get();
+      await FirestoreAggregateHelpers.forEachLedgerLoan(_db, type, (loan) async {
+        final inst =
+            await loan.reference.collection(FirestorePaths.installments).get();
         for (final doc in inst.docs) {
           final data = doc.data();
           final ts = data['date'];
@@ -164,15 +189,23 @@ class DashboardService {
             principalPaid: principal,
           );
         }
-      }
+      });
     }
 
     await scanCollection(FirestorePaths.lending, true);
     await scanCollection(FirestorePaths.borrowing, false);
+    AppCache.instance.putLedgerMonthly(year, buckets);
     return buckets;
   }
 
-  Future<LedgerOverviewStats> loadLedgerOverview() async {
+  Future<LedgerOverviewStats> loadLedgerOverview({
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh) {
+      final cached = AppCache.instance.dashboardLedger;
+      if (cached != null) return cached;
+    }
+
     var lent = 0;
     var borrowed = 0;
     var lendingRemaining = 0;
@@ -181,35 +214,37 @@ class DashboardService {
     var paid = 0;
     var overpaidCount = 0;
 
-    final lendingSnap = await _ledgerCollection(FirestorePaths.lending).get();
-    for (final loan in lendingSnap.docs) {
+    await FirestoreAggregateHelpers.forEachLedgerLoan(
+        _db, FirestorePaths.lending, (loan) async {
       final data = loan.data();
       lent += _asInt(data['principal']);
       final rem = _asInt(data['remainingPrincipal']);
       lendingRemaining += rem;
       if (rem < 0) overpaidCount++;
 
-      final inst = await loan.reference.collection(FirestorePaths.installments).get();
+      final inst =
+          await loan.reference.collection(FirestorePaths.installments).get();
       for (final i in inst.docs) {
         earned += _asInt(i.data()['interestPaid']);
       }
-    }
+    });
 
-    final borrowSnap = await _ledgerCollection(FirestorePaths.borrowing).get();
-    for (final loan in borrowSnap.docs) {
+    await FirestoreAggregateHelpers.forEachLedgerLoan(
+        _db, FirestorePaths.borrowing, (loan) async {
       final data = loan.data();
       borrowed += _asInt(data['principal']);
       final rem = _asInt(data['remainingPrincipal']);
       borrowingRemaining += rem;
       if (rem < 0) overpaidCount++;
 
-      final inst = await loan.reference.collection(FirestorePaths.installments).get();
+      final inst =
+          await loan.reference.collection(FirestorePaths.installments).get();
       for (final i in inst.docs) {
         paid += _asInt(i.data()['interestPaid']);
       }
-    }
+    });
 
-    return LedgerOverviewStats(
+    final stats = LedgerOverviewStats(
       totalLentPrincipal: lent,
       totalBorrowedPrincipal: borrowed,
       totalLendingRemaining: lendingRemaining,
@@ -218,13 +253,8 @@ class DashboardService {
       interestPaid: paid,
       overpaidLoansCount: overpaidCount,
     );
-  }
-
-  CollectionReference<Map<String, dynamic>> _ledgerCollection(String type) {
-    return _db
-        .collection(FirestorePaths.ledgerRoot)
-        .doc(FirestorePaths.ledgerDataDoc)
-        .collection(type);
+    AppCache.instance.putDashboardLedger(stats);
+    return stats;
   }
 
   int _asInt(dynamic value) {

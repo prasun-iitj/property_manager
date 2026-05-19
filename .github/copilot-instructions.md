@@ -1,6 +1,8 @@
 # Copilot / GitHub Copilot Instructions
 
-Repository: **Property Manager** — Flutter + Firebase property & finance app.
+Repository: **Property Manager** — Flutter + Firebase property, finance, and admin platform.
+
+**Version:** 1.2 · **Web:** https://propertymanagerapp-c4961.web.app
 
 ---
 
@@ -8,13 +10,16 @@ Repository: **Property Manager** — Flutter + Firebase property & finance app.
 
 ```
 lib/
-  models/       # Typed data objects
-  services/     # Firestore, Storage, analytics (prefer this over screens)
+  models/       # Typed data objects (incl. team_member)
+  services/     # Firestore, Storage, analytics, app_cache, team_service
   screens/      # UI + navigation
+  screens/admin/  # manage_team, backup_settings
   screens/ledger/
-  widgets/      # Reusable UI
-  utils/        # ledger_calculator, file_saver, storage helpers
+  widgets/      # dashboard_zone, admin_otp_dialog, role_access_banner
+  utils/        # ledger_calculator, file_saver, whatsapp, external_url
   constants/    # firestore_paths.dart
+functions/
+  index.js      # Callable + scheduled (asia-south1)
 ```
 
 ---
@@ -27,11 +32,14 @@ lib/
 4. Allow **negative balances** for overpayments (property + ledger).  
 5. Enforce **unique plot numbers** via `PlotService` before creating plots.  
 6. Keep changes **backward-compatible** with existing V1 data unless migration is provided.  
-7. On web, do not fetch Storage files with Dio from public URLs (CORS). Use `DocumentService.fetchDocumentBytes()`.
+7. On web, do not fetch Storage files with Dio from public URLs (CORS). Use `DocumentService.fetchDocumentBytes()`.  
+8. **Team/backup/OTP** — implement in `functions/index.js`; Flutter calls via `TeamService` callables only.  
+9. Use **AppCache** for list/dashboard reads; refresh after writes.  
+10. Web build: `flutter build web --release --no-web-resources-cdn`.
 
 ---
 
-## Active Firestore paths (V1)
+## Active Firestore paths (v1.2)
 
 ```
 sites/{siteId}/plots/{plotId}/customer/details
@@ -42,11 +50,15 @@ ledger/data/lending/{loanId}/installments/{installmentId}
 ledger/data/borrowing/{borrowId}/installments/{installmentId}
 
 users/{uid}   → role: admin | staff
+config/system
+backupHistory/{id}
+systemOtp/{id}   (server only)
 ```
 
 **Do not use:** `ledger/master/...` (deprecated)
 
-**Storage files:** `customers/{siteId}_{plotId}/{fileName}`
+**Storage files:** `customers/{siteId}_{plotId}/{fileName}`  
+**Backups:** `backups/{timestamp}/firestore-export.json`
 
 ---
 
@@ -54,42 +66,26 @@ users/{uid}   → role: admin | staff
 
 | Role | Entry screen |
 |------|----------------|
-| admin | DashboardScreen (Property / Finance / Insights zones) |
+| admin | DashboardScreen (Property / Finance / Insights + team + backup) |
 | staff | SiteListScreen |
 
 ---
 
-## UI color zones
+## Cloud Functions (summary)
 
-- Property: blue `#1E3A8A`  
-- Finance: teal `#0F766E`  
-- Insights: purple `#6D28D9`
-
----
-
-## When generating UI
-
-- Reuse widgets: `DashboardZone`, `StatCard`, `ProgressSummaryCard`, `PropertyCollectionsChart`, `EmptyState`  
-- Explicit loading and error states  
-- `RefreshIndicator` on reloadable lists  
-- Check `role == 'admin'` for destructive actions  
+- Region: `asia-south1`  
+- Team: `createTeamMember`, `createAdminTeamMember`, `updateTeamMemberRole`, enable/disable  
+- OTP: `requestAdminOtp` (email via nodemailer; `SMTP_USER`, `SMTP_PASS`)  
+- Backup: `runBackupNow`, `scheduledFirestoreBackup` (2 AM IST), `updateBackupSettings`  
 
 ---
 
-## Documentation
+## Docs to update when changing behavior
 
-Update when behavior changes:
-
-- `USER_MANUAL.md` — user-facing  
-- `DATABASE_SCHEMA.md` — fields/paths  
+- `USER_MANUAL.md` — user-visible  
+- `DATABASE_SCHEMA.md` — schema  
 - `ARCHITECTURE.md` — design  
-- `README.md` — overview  
+- `README.md`, `CHANGELOG.md`  
+- `INTERVIEW_PREP.md` — if stack/flow narrative changes  
 
----
-
-## Verify
-
-```bash
-flutter analyze lib
-flutter test
-```
+See `AGENT.md` and `INSTRUCTIONS.md` for full guidelines.

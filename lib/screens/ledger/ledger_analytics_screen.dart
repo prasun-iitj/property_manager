@@ -1,164 +1,127 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/app_cache.dart';
+import '../../services/dashboard_service.dart';
+import '../../utils/ledger_calculator.dart';
 
-class LedgerAnalyticsScreen extends StatelessWidget {
+class LedgerAnalyticsScreen extends StatefulWidget {
   const LedgerAnalyticsScreen({super.key});
 
-  Future<Map<String, int>> calculateLedgerStats() async {
+  @override
+  State<LedgerAnalyticsScreen> createState() => _LedgerAnalyticsScreenState();
+}
 
-    int totalLent = 0;
-    int totalBorrowed = 0;
-    int interestEarned = 0;
-    int interestPaid = 0;
+class _LedgerAnalyticsScreenState extends State<LedgerAnalyticsScreen> {
+  final DashboardService _dashboard = DashboardService();
+  LedgerOverviewStats? _stats;
+  bool _loading = true;
 
-    /// LENDING
-    var lending = await FirebaseFirestore.instance
-        .collection('ledger')
-        .doc('data')
-        .collection('lending')
-        .get();
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
-    for (var loan in lending.docs) {
-
-      var loanData = loan.data();
-
-      totalLent += (loanData['principal'] ?? 0) as int;
-
-      var installments = await loan.reference
-          .collection('installments')
-          .get();
-
-      for (var ins in installments.docs) {
-
-        var pay = ins.data();
-
-        interestEarned += (pay['interestPaid'] ?? 0) as int;
-
-      }
+  Future<void> _load({bool force = false}) async {
+    final cached = AppCache.instance.dashboardLedger;
+    if (!force && cached != null) {
+      setState(() {
+        _stats = cached;
+        _loading = false;
+      });
+    } else {
+      setState(() => _loading = true);
     }
 
-    /// BORROWING
-    var borrowing = await FirebaseFirestore.instance
-        .collection('ledger')
-        .doc('data')
-        .collection('borrowing')
-        .get();
-
-    for (var loan in borrowing.docs) {
-
-      var loanData = loan.data();
-
-      totalBorrowed += (loanData['principal'] ?? 0) as int;
-
-      var installments = await loan.reference
-          .collection('installments')
-          .get();
-
-      for (var ins in installments.docs) {
-
-        var pay = ins.data();
-
-        interestPaid += (pay['interestPaid'] ?? 0) as int;
-
-      }
+    try {
+      final stats = await _dashboard.loadLedgerOverview(forceRefresh: force);
+      if (mounted) setState(() => _stats = stats);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-
-    return {
-      "lent": totalLent,
-      "borrowed": totalBorrowed,
-      "earned": interestEarned,
-      "paid": interestPaid,
-      "profit": interestEarned - interestPaid
-    };
   }
 
   @override
   Widget build(BuildContext context) {
+    final stats = _stats;
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text("Ledger Analytics"),
+        title: const Text('Ledger Analytics'),
+        backgroundColor: const Color(0xFF0F766E),
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: () => _load(force: true)),
+        ],
       ),
-
-      body: FutureBuilder(
-        future: calculateLedgerStats(),
-        builder: (context, snapshot) {
-
-          if (!snapshot.hasData) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
-
-          var data = snapshot.data!;
-
-          return Padding(
-            padding: const EdgeInsets.all(20),
-
-            child: Column(
-              children: [
-
-                _card("Total Lent", data['lent']!),
-
-                const SizedBox(height: 15),
-
-                _card("Total Borrowed", data['borrowed']!),
-
-                const SizedBox(height: 15),
-
-                _card("Interest Earned", data['earned']!),
-
-                const SizedBox(height: 15),
-
-                _card("Interest Paid", data['paid']!),
-
-                const SizedBox(height: 15),
-
-                _card("Net Profit", data['profit']!),
-
-              ],
+      body: _loading && stats == null
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: () => _load(force: true),
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _statTile(
+                    'Total lent',
+                    LedgerMoneyFormat.rupees(stats?.totalLentPrincipal ?? 0),
+                    Icons.trending_up,
+                    const Color(0xFF0F766E),
+                  ),
+                  _statTile(
+                    'Total borrowed',
+                    LedgerMoneyFormat.rupees(stats?.totalBorrowedPrincipal ?? 0),
+                    Icons.trending_down,
+                    const Color(0xFFDC2626),
+                  ),
+                  _statTile(
+                    'Interest earned',
+                    LedgerMoneyFormat.rupees(stats?.interestEarned ?? 0),
+                    Icons.savings_outlined,
+                    const Color(0xFF2563EB),
+                  ),
+                  _statTile(
+                    'Interest paid',
+                    LedgerMoneyFormat.rupees(stats?.interestPaid ?? 0),
+                    Icons.payments_outlined,
+                    const Color(0xFF7C3AED),
+                  ),
+                  _statTile(
+                    'Net interest',
+                    LedgerMoneyFormat.rupees(stats?.interestNet ?? 0),
+                    Icons.account_balance_wallet_outlined,
+                    const Color(0xFF047857),
+                  ),
+                  _statTile(
+                    'Net position',
+                    LedgerMoneyFormat.rupees(stats?.netPosition ?? 0),
+                    Icons.balance,
+                    const Color(0xFF1E3A8A),
+                  ),
+                ],
+              ),
             ),
-          );
-        },
-      ),
     );
   }
 
-  Widget _card(String title, int amount) {
-
+  Widget _statTile(String label, String value, IconData icon, Color color) {
     return Card(
-      elevation: 6,
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.grey.shade200),
       ),
-
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-
-          children: [
-
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-
-            Text(
-              "₹ $amount",
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.green,
-              ),
-            )
-
-          ],
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: color.withValues(alpha: 0.12),
+          child: Icon(icon, color: color),
         ),
+        title: Text(
+          value,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
+        subtitle: Text(label),
       ),
     );
   }

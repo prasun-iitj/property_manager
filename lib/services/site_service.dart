@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import '../models/site_model.dart';
+import 'app_cache.dart';
 
 class SiteService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -24,12 +25,14 @@ class SiteService {
           .collection('sites')
           .doc(siteId)
           .set(site.toMap(), SetOptions(merge: true));
+      AppCache.instance.invalidateProperty();
       return;
     }
 
     await _firestore
         .collection('sites')
         .add(site.toMap(includeCreatedAt: true));
+    AppCache.instance.invalidateProperty();
   }
 
   Future<void> deleteSiteCascade(String siteId) async {
@@ -56,6 +59,7 @@ class SiteService {
     }
 
     await _firestore.collection('sites').doc(siteId).delete();
+    AppCache.instance.invalidateProperty();
   }
 
   Future<void> _deleteCustomerSubcollections(

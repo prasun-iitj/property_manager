@@ -56,6 +56,17 @@ A reliable **property + finance operations** product that can grow into a multi-
 - [x] Web document handling (iframe fallback, blob download)  
 - [x] Unit tests (ledger calculator, login smoke)  
 
+### Admin platform (v1.2) ✅
+
+- [x] Manage team (staff/admin create, disable, promote)  
+- [x] Email OTP for admin actions (Cloud Functions + nodemailer)  
+- [x] Cloud Firestore backup (manual + scheduled 2 AM IST)  
+- [x] Backup settings UI + history  
+- [x] AppCache for navigation performance  
+- [x] Redesigned login screen  
+- [x] Registration gate for Google sign-in  
+- [x] `INTERVIEW_PREP.md` documentation  
+
 ### Known V1 limitations
 
 - Some screens still use direct Firestore access  

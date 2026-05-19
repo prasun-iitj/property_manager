@@ -9,6 +9,7 @@ import '../widgets/property_chart.dart';
 import '../models/customer_model.dart';
 import '../services/customer_service.dart';
 import '../services/property_analytics_service.dart';
+import '../utils/whatsapp_launcher.dart';
 
 class CustomerDetailScreen extends StatefulWidget {
   final String siteId;
@@ -35,8 +36,13 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   Map<int, PropertyMonthBucket> _paymentMonths = {};
   int _chartYear = DateTime.now().year;
   int? _selectedPayMonth;
-
   String get customerId => "${widget.siteId}_${widget.plotId}";
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPaymentChart();
+  }
 
   Future<void> _loadPaymentChart() async {
     final data = await _analytics.loadPlotPaymentMonthly(
@@ -104,6 +110,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
         paymentId: paymentId,
       );
       if (!mounted) return;
+      _loadPaymentChart();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Payment deleted')),
       );
@@ -154,8 +161,8 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
+        onPressed: () async {
+          await Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) => AddPaymentScreen(
@@ -164,17 +171,19 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
               ),
             ),
           );
+          _loadPaymentChart();
         },
         icon: const Icon(Icons.add),
         label: const Text('Add Payment'),
       ),
-      body: FutureBuilder(
-              future: _customerService.getCustomerDetails(
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: _customerService.streamCustomerDetails(
                 siteId: widget.siteId,
                 plotId: widget.plotId,
               ),
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
@@ -212,10 +221,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
 
                 final customer =
                     CustomerModel.fromMap(snapshot.data!.data() ?? {});
-
-                if (_paymentMonths.isEmpty) {
-                  _loadPaymentChart();
-                }
 
                 final totalPrice = customer.totalPrice;
                 final totalPaid = customer.totalPaid;
@@ -281,12 +286,25 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                                   ],
                                 ),
                               ),
-                              if (customer.phone.isNotEmpty)
+                              if (customer.phone.isNotEmpty) ...[
+                                IconButton(
+                                  onPressed: () => launchPaymentWhatsApp(
+                                    phone: customer.phone,
+                                    message:
+                                        'Hello ${customer.name},\n\n$kPaymentWhatsAppSignature',
+                                  ),
+                                  icon: const Icon(
+                                    Icons.message,
+                                    color: Color(0xFF25D366),
+                                  ),
+                                  tooltip: 'WhatsApp customer',
+                                ),
                                 IconButton(
                                   onPressed: () => _callCustomer(customer.phone),
                                   icon: const Icon(Icons.phone, color: Colors.green),
                                   tooltip: 'Call customer',
                                 ),
+                              ],
                             ],
                           ),
                         ),

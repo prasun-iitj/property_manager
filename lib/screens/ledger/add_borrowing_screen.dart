@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/app_cache.dart';
 
 class AddBorrowingScreen extends StatefulWidget {
   const AddBorrowingScreen({super.key});
@@ -89,6 +90,7 @@ class _AddBorrowingScreenState extends State<AddBorrowingScreen> {
         "status": "active",
         "totalPaid": 0
       });
+      AppCache.instance.invalidateLedger();
 
       if (mounted) Navigator.pop(context);
     } catch (e) {

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../constants/firestore_paths.dart';
 import '../utils/ledger_calculator.dart';
+import 'app_cache.dart';
 
 class LedgerService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -88,6 +89,7 @@ class LedgerService {
     writes++;
     await commitIfNeeded(force: true);
 
+    AppCache.instance.invalidateLedger();
     return replay;
   }
 

@@ -1,7 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../services/customer_service.dart';
 import '../utils/ledger_calculator.dart';
+import '../utils/whatsapp_launcher.dart';
 
 class AddPaymentScreen extends StatefulWidget {
   final String siteId;
@@ -95,16 +96,25 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
         mode: selectedMode,
       );
 
-      if (result.phone.isNotEmpty) {
-        await sendWhatsAppMessage(
-          result.phone,
-          amount,
-          result.totalPaid,
-          result.remaining,
-        );
-      }
+      if (!mounted) return;
 
-      if (mounted) Navigator.pop(context);
+      final message = buildPaymentReceiptMessage(
+        amount: amount,
+        totalPaid: result.totalPaid,
+        remaining: result.remaining,
+      );
+
+      final phone = result.phone.trim();
+
+      // Web / iPhone PWA: Safari blocks WhatsApp if opened after async save — use a tap button.
+      if (kIsWeb) {
+        await _showWhatsAppReceiptDialog(phone: phone, message: message);
+      } else {
+        if (phone.isNotEmpty) {
+          await launchPaymentWhatsApp(phone: phone, message: message);
+        }
+        if (mounted) Navigator.pop(context);
+      }
     } on StateError catch (e) {
       showError(e.message);
     } catch (_) {
@@ -114,34 +124,69 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
     }
   }
 
-  Future<void> sendWhatsAppMessage(
-    String phone,
-    int amount,
-    int totalPaid,
-    int remaining,
-  ) async {
-    try {
-      final balanceLine = remaining < 0
-          ? 'Overpaid: ${LedgerMoneyFormat.rupees(-remaining)} (credit)'
-          : 'Remaining Amount: ${LedgerMoneyFormat.rupees(remaining)}';
+  Future<void> _showWhatsAppReceiptDialog({
+    required String phone,
+    required String message,
+  }) async {
+    if (!mounted) return;
 
-      final message = '''
-Payment Received Successfully
-
-Amount Paid: ₹$amount
-Total Paid: ₹$totalPaid
-$balanceLine
-
-Thank you.
-''';
-
-      final url = "https://wa.me/91$phone?text=${Uri.encodeComponent(message)}";
-      final uri = Uri.parse(url);
-
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } catch (_) {}
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        final hasPhone = phone.trim().isNotEmpty;
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Color(0xFF16A34A)),
+              SizedBox(width: 8),
+              Text('Payment saved'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                hasPhone
+                    ? 'Send receipt to $phone on WhatsApp?'
+                    : 'No phone saved for this customer. You can still open WhatsApp and pick a contact.',
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Includes: $kPaymentWhatsAppSignature',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                Navigator.pop(context);
+              },
+              child: const Text('Done'),
+            ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF25D366),
+              ),
+              onPressed: () {
+                final nav = Navigator.of(context);
+                Navigator.pop(dialogContext);
+                launchPaymentWhatsApp(phone: phone, message: message);
+                nav.pop();
+              },
+              icon: const Icon(Icons.message, color: Colors.white),
+              label: const Text(
+                'Send on WhatsApp',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void showError(String msg) {

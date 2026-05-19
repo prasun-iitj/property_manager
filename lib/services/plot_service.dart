@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/plot_model.dart';
+import 'app_cache.dart';
 
 class PlotService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -48,6 +49,7 @@ class PlotService {
         .doc(siteId)
         .collection('plots')
         .add(plot.toMap());
+    AppCache.instance.invalidatePlotSite(siteId);
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> streamPlots(String siteId) {

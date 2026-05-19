@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/app_cache.dart';
 
 class AddLendingScreen extends StatefulWidget {
   const AddLendingScreen({super.key});
@@ -89,6 +90,7 @@ class _AddLendingScreenState extends State<AddLendingScreen> {
         "status": "active",
         "totalPaid": 0
       });
+      AppCache.instance.invalidateLedger();
 
       if (mounted) Navigator.pop(context);
     } catch (e) {

@@ -1,7 +1,7 @@
 # System Architecture
 
-**Property Manager** — technical architecture (current V1 implementation)  
-**Last updated:** reflects operational codebase with Property / Finance / Insights zones
+**Property Manager** — technical architecture (v1.2 operational)  
+**Last updated:** May 2026 — Property / Finance / Insights zones, team management, cloud backup, AppCache
 
 ---
 
@@ -74,7 +74,7 @@ DashboardScreen
 ### Staff
 
 ```
-SiteListScreen → (same property subtree as above, no admin dashboard)
+SiteListScreen (+ RoleAccessBanner) → (same property subtree as above, no admin dashboard)
 ```
 
 ---
@@ -98,6 +98,24 @@ SiteListScreen → (same property subtree as above, no admin dashboard)
 | `NotificationService` | Local notifications init |
 | `EmiChecker` | Scan plots for overdue EMI, notify |
 | `InactivityService` | Session timeout handling |
+| `TeamService` | Callable functions: create/update/disable team, OTP, super-admin email |
+| `AppCache` | In-memory TTL cache (~60s) for dashboard, sites, plots, ledger, reports |
+| `firestore_aggregate_helpers.dart` | Parallel Firestore reads for aggregates |
+
+### Cloud Functions (`functions/index.js`, region `asia-south1`)
+
+| Function | Purpose |
+|----------|---------|
+| `createTeamMember` | Staff user (Auth + `users/{uid}`) |
+| `createAdminTeamMember` | New admin (requires OTP) |
+| `requestAdminOtp` | Email 6-digit OTP to super-admin |
+| `updateTeamMemberRole` | Promote staff → admin (OTP) |
+| `enableTeamMember` / `disableTeamMember` | Account status |
+| `registerSuperAdminEmail` | Set OTP recipient in `config/system` |
+| `runBackupNow` / `scheduledFirestoreBackup` | Firestore JSON → Storage |
+| `updateBackupSettings` | Toggle schedule, retention hints |
+
+SMTP via `SMTP_USER`, `SMTP_PASS` (nodemailer). OTP hashes in `systemOtp`.
 
 ### Shared utilities
 
@@ -139,6 +157,16 @@ Balance fields on loan docs are updated when installments are added/deleted via 
 
 - Dashboard/Insights combine property collection stats + ledger stats.
 - No automatic link between a plot customer and a ledger loan (manual separate entries).
+
+### 5.4 System collections
+
+```
+config/system     → superAdminEmail, backupEnabled, ...
+backupHistory/{id} → timestamp, storagePath, size, status
+systemOtp/{id}     → hashed OTP, expiry (functions only)
+```
+
+Team user writes: **callable functions only**; clients read `users/{uid}` for own profile/role.
 
 ---
 
@@ -194,8 +222,11 @@ Requires Storage **CORS** for in-app byte fetch on web (`cors.json`).
 | `ProgressSummaryCard` | Plot/loan repayment progress |
 | `StatCard` / `ZoneStatTile` | Metric display |
 | `RefreshIndicator` + service reload | List screens |
-| `StreamBuilder` | Real-time documents, some legacy streams |
-| `FutureBuilder` | Customer detail, initial loads |
+| `StreamBuilder` | Real-time documents, customer detail payments stream |
+| `FutureBuilder` | Initial loads with AppCache fast path |
+| `AppCache` | Stale-while-revalidate: show cached, refresh in background |
+| `AdminOtpDialog` | Email OTP entry for admin team actions |
+| `RoleAccessBanner` | Staff role notice on Property Hub |
 
 **Theme:** Primary `#1E3A8A`, Finance teal `#0F766E`, Insights purple `#6D28D9`.
 
@@ -205,10 +236,11 @@ Requires Storage **CORS** for in-app byte fetch on web (`cors.json`).
 
 | File | Scope |
 |------|--------|
-| `firestore.rules` | Role-based: admin writes sites/plots; staff+admin writes customers/payments/docs/ledger |
-| `storage.rules` | Authenticated read/write under `customers/{customerId}/**` |
+| `firestore.rules` | Role-based: admin writes sites/plots; staff+admin writes customers/payments/docs/ledger; `config`/`backupHistory` admin read |
+| `storage.rules` | Authenticated read/write under `customers/{customerId}/**`; backups path for admins |
+| Cloud Functions | Admin-only callable endpoints for team + backup (server-side Auth Admin SDK) |
 
-App-level gating (e.g. delete site, admin-only buttons) is **in addition to** rules — rules must be deployed to Firebase.
+App-level gating (e.g. delete site, team, backup) is **in addition to** rules — rules and functions must be deployed to Firebase.
 
 ---
 
@@ -223,7 +255,23 @@ Run: `flutter test`, `flutter analyze lib`
 
 ---
 
-## 12. Known gaps & V2 direction
+## 12. Performance architecture
+
+```
+Screen open
+  → Service checks AppCache.get(key)
+  → if hit: return cached data immediately; schedule background refresh
+  → if miss: fetch Firestore (often parallel via aggregate helpers)
+  → AppCache.set(key, data, ttl: ~60s)
+
+Navigator.pop → optional background refresh of parent screen cache
+```
+
+Web: build with `--no-web-resources-cdn` to avoid CanvasKit CDN failures on some devices.
+
+---
+
+## 13. Known gaps & V2 direction
 
 | Gap | Target |
 |-----|--------|
@@ -233,13 +281,14 @@ Run: `flutter test`, `flutter analyze lib`
 | Global search | Search across all sites |
 | State management | Riverpod/Provider |
 | Receipt PDF for plot payments | PdfService extension |
+| Custom domain SSL on DuckDNS | CNAME via alternate DNS or Firebase A-record path |
 | Firestore indexes | Document composite indexes for scale |
 
 See `PRODUCT_ROADMAP.md` for phased plan.
 
 ---
 
-## 13. Dependency graph (simplified)
+## 14. Dependency graph (simplified)
 
 ```
 screens → services → Firebase (Auth, Firestore, Storage)

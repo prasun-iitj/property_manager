@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/app_cache.dart';
 import '../services/dashboard_service.dart';
 import '../services/property_analytics_service.dart';
 import '../utils/ledger_calculator.dart';
@@ -32,14 +33,37 @@ class _ReportsScreenState extends State<ReportsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _load({bool force = false}) async {
+    final cachedProperty = AppCache.instance.propertyGlobal;
+    final cachedLedger = AppCache.instance.dashboardLedger;
+    final cachedSites = AppCache.instance.siteSummaries;
+    final cachedMonthly = AppCache.instance.propertyMonthly(_year);
+
+    if (!force &&
+        cachedProperty != null &&
+        cachedLedger != null &&
+        cachedSites != null &&
+        cachedMonthly != null) {
+      setState(() {
+        _property = cachedProperty;
+        _ledger = cachedLedger;
+        _topSites = cachedSites.take(5).toList();
+        _monthly = cachedMonthly;
+        _loading = false;
+      });
+    } else {
+      setState(() => _loading = true);
+    }
+
     try {
       final results = await Future.wait([
-        _propertyAnalytics.loadGlobalStats(),
-        _dashboard.loadLedgerOverview(),
-        _propertyAnalytics.loadSiteSummaries(),
-        _propertyAnalytics.loadPropertyMonthlyBreakdown(_year),
+        _propertyAnalytics.loadGlobalStats(forceRefresh: force),
+        _dashboard.loadLedgerOverview(forceRefresh: force),
+        _propertyAnalytics.loadSiteSummaries(forceRefresh: force),
+        _propertyAnalytics.loadPropertyMonthlyBreakdown(
+          _year,
+          forceRefresh: force,
+        ),
       ]);
       if (!mounted) return;
       setState(() {
@@ -53,9 +77,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
-  Future<void> _loadChartOnly() async {
-    final monthly =
-        await _propertyAnalytics.loadPropertyMonthlyBreakdown(_year);
+  Future<void> _loadChartOnly({bool force = false}) async {
+    final cached = AppCache.instance.propertyMonthly(_year);
+    if (!force && cached != null) {
+      setState(() => _monthly = cached);
+    }
+    final monthly = await _propertyAnalytics.loadPropertyMonthlyBreakdown(
+      _year,
+      forceRefresh: force,
+    );
     if (mounted) setState(() => _monthly = monthly);
   }
 
@@ -319,7 +349,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             _year = y;
             _selectedMonth = null;
           });
-          _loadChartOnly();
+          _loadChartOnly(force: true);
         },
         onMonthSelected: (m) => setState(() => _selectedMonth = m),
       ),

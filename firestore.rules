@@ -18,8 +18,22 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isSignedIn() && request.auth.uid == userId;
-      allow write: if isAdmin();
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
+      allow write: if false;
+    }
+
+    match /config/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /systemOtp/{otpId} {
+      allow read, write: if false;
+    }
+
+    match /backupHistory/{historyId} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     match /sites/{siteId} {
@@ -71,6 +85,14 @@ service cloud.firestore {
       match /documents/{documentId} {
         allow read, write: if isStaffOrAdmin();
       }
+    }
+
+    match /{path=**}/payments/{paymentId} {
+      allow read, write: if isStaffOrAdmin();
+    }
+
+    match /{path=**}/installments/{installmentId} {
+      allow read, write: if isStaffOrAdmin();
     }
   }
 }

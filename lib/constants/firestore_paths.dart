@@ -5,6 +5,10 @@ class FirestorePaths {
 
   static const ledgerRoot = 'ledger';
   static const ledgerDataDoc = 'data';
+  /// Legacy ledger container (pre-v1.1); still read for existing production data.
+  static const legacyLedgerDataDoc = 'master';
+
+  static const ledgerContainerDocIds = [ledgerDataDoc, legacyLedgerDataDoc];
   static const lending = 'lending';
   static const borrowing = 'borrowing';
   static const installments = 'installments';
@@ -17,4 +21,8 @@ class FirestorePaths {
 
   /// Legacy document storage path (still read for migration).
   static const legacyCustomers = 'customers';
+
+  static const config = 'config';
+  static const systemConfigDoc = 'system';
+  static const backupHistory = 'backupHistory';
 }

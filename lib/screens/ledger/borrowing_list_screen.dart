@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'borrowing_detail_screen.dart';
 import 'add_borrowing_screen.dart';
+import '../../services/app_cache.dart';
 import '../../widgets/breadcrumb.dart';
 import '../../utils/ledger_calculator.dart';
 
@@ -46,6 +47,7 @@ class BorrowingListScreen extends StatelessWidget {
 
       // 🔥 delete main doc
       await ref.delete();
+      AppCache.instance.invalidateLedger();
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -138,11 +138,27 @@ class ProgressSummaryCard extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _miniStat('Principal paid', LedgerMoneyFormat.rupees(paid)),
-                _miniStat('Balance', LedgerMoneyFormat.rupees(remaining)),
-                _miniStat('Loan amount', LedgerMoneyFormat.rupees(total)),
+                Expanded(
+                  child: _miniStat(
+                    'Principal paid',
+                    LedgerMoneyFormat.rupees(paid),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: _miniStat(
+                    'Balance',
+                    LedgerMoneyFormat.rupees(remaining),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: _miniStat(
+                    'Loan amount',
+                    LedgerMoneyFormat.rupees(total),
+                  ),
+                ),
               ],
             ),
           ],
@@ -155,13 +171,21 @@ class ProgressSummaryCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        Text(
+          label,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white70, fontSize: 10),
+        ),
+        const SizedBox(height: 2),
         Text(
           value,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w600,
-            fontSize: 13,
+            fontSize: 12,
           ),
         ),
       ],

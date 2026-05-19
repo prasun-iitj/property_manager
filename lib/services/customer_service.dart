@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import '../models/customer_model.dart';
+import 'app_cache.dart';
 
 class PaymentSaveResult {
   final String phone;
@@ -38,6 +39,17 @@ class CustomerService {
     return _customerDetailsRef(siteId: siteId, plotId: plotId).get();
   }
 
+  Stream<DocumentSnapshot<Map<String, dynamic>>> streamCustomerDetails({
+    required String siteId,
+    required String plotId,
+  }) {
+    return _customerDetailsRef(siteId: siteId, plotId: plotId).snapshots();
+  }
+
+  void _invalidatePropertyCaches(String siteId) {
+    AppCache.instance.invalidatePlotSite(siteId);
+  }
+
   Future<void> saveCustomer({
     required String siteId,
     required String plotId,
@@ -47,6 +59,7 @@ class CustomerService {
       customer.toMap(),
       SetOptions(merge: true),
     );
+    _invalidatePropertyCaches(siteId);
   }
 
   Future<void> deleteCustomer({
@@ -56,6 +69,7 @@ class CustomerService {
     final customerRef = _customerDetailsRef(siteId: siteId, plotId: plotId);
     await _deleteCustomerSubcollections(customerRef);
     await customerRef.delete();
+    _invalidatePropertyCaches(siteId);
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> streamPayments({
@@ -100,6 +114,7 @@ class CustomerService {
         });
       }
     });
+    _invalidatePropertyCaches(siteId);
   }
 
   Future<PaymentSaveResult> addPayment({
@@ -147,7 +162,7 @@ class CustomerService {
         totalPaid: newTotalPaid,
         remaining: remaining,
       );
-    });
+    }).whenComplete(() => _invalidatePropertyCaches(siteId));
   }
 
   Future<void> _deleteCustomerSubcollections(

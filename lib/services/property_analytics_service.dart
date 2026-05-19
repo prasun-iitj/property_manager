@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../constants/firestore_paths.dart';
+import 'app_cache.dart';
+import 'firestore_aggregate_helpers.dart';
 
 class PropertyMonthBucket {
   final int collected;
@@ -94,7 +96,40 @@ class InsightsComparison {
 class PropertyAnalyticsService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  Future<PropertyGlobalStats> loadGlobalStats() async {
+  Future<PropertyGlobalStats> loadGlobalStats({bool forceRefresh = false}) async {
+    if (!forceRefresh) {
+      final cached = AppCache.instance.propertyGlobal;
+      if (cached != null) return cached;
+    }
+    final stats = await _fetchGlobalStats();
+    AppCache.instance.putPropertyGlobal(stats);
+    return stats;
+  }
+
+  Future<List<SiteSummary>> loadSiteSummaries({bool forceRefresh = false}) async {
+    if (!forceRefresh) {
+      final cached = AppCache.instance.siteSummaries;
+      if (cached != null) return cached;
+    }
+    final sites = await _fetchSiteSummaries();
+    AppCache.instance.putSiteSummaries(sites);
+    return sites;
+  }
+
+  Future<List<PlotSummary>> loadPlotSummaries(
+    String siteId, {
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh) {
+      final cached = AppCache.instance.plotSummaries(siteId);
+      if (cached != null) return cached;
+    }
+    final plots = await _fetchPlotSummaries(siteId);
+    AppCache.instance.putPlotSummaries(siteId, plots);
+    return plots;
+  }
+
+  Future<PropertyGlobalStats> _fetchGlobalStats() async {
     final now = DateTime.now();
     var sites = 0;
     var plots = 0;
@@ -108,12 +143,20 @@ class PropertyAnalyticsService {
     for (final site in sitesSnap.docs) {
       final plotsSnap =
           await site.reference.collection(FirestorePaths.plots).get();
-      for (final plot in plotsSnap.docs) {
+      if (plotsSnap.docs.isEmpty) continue;
+
+      final customers = await Future.wait(
+        plotsSnap.docs.map(
+          (plot) => plot.reference
+              .collection(FirestorePaths.customer)
+              .doc(FirestorePaths.customerDetailsId)
+              .get(),
+        ),
+      );
+
+      for (var i = 0; i < plotsSnap.docs.length; i++) {
         plots++;
-        final customer = await plot.reference
-            .collection(FirestorePaths.customer)
-            .doc(FirestorePaths.customerDetailsId)
-            .get();
+        final customer = customers[i];
         if (!customer.exists) continue;
         occupied++;
         final data = customer.data() ?? {};
@@ -127,18 +170,18 @@ class PropertyAnalyticsService {
 
     var today = 0;
     var month = 0;
-    final paySnap =
-        await _db.collectionGroup(FirestorePaths.payments).get();
-    for (final doc in paySnap.docs) {
-      final ts = doc.data()['date'];
-      if (ts is! Timestamp) continue;
+    await FirestoreAggregateHelpers.forEachPayment(_db, (data) {
+      final ts = data['date'];
+      if (ts is! Timestamp) return;
       final d = ts.toDate();
-      final amount = _asInt(doc.data()['amount']);
+      final amount = _asInt(data['amount']);
       if (d.year == now.year && d.month == now.month) month += amount;
-      if (d.year == now.year && d.month == now.month && d.day == now.day) {
+      if (d.year == now.year &&
+          d.month == now.month &&
+          d.day == now.day) {
         today += amount;
       }
-    }
+    });
 
     return PropertyGlobalStats(
       siteCount: sites,
@@ -152,58 +195,66 @@ class PropertyAnalyticsService {
     );
   }
 
-  Future<List<SiteSummary>> loadSiteSummaries() async {
+  Future<List<SiteSummary>> _fetchSiteSummaries() async {
     final now = DateTime.now();
     final sitesSnap = await _db.collection(FirestorePaths.sites).get();
-    final summaries = <SiteSummary>[];
 
-    for (final site in sitesSnap.docs) {
-      final data = site.data();
-      var plotCount = 0;
-      var occupied = 0;
-      var outstanding = 0;
-      var monthCol = 0;
-
-      final plotsSnap =
-          await site.reference.collection(FirestorePaths.plots).get();
-      for (final plot in plotsSnap.docs) {
-        plotCount++;
-        final customerRef = plot.reference
-            .collection(FirestorePaths.customer)
-            .doc(FirestorePaths.customerDetailsId);
-        final customer = await customerRef.get();
-        if (customer.exists) {
-          occupied++;
-          outstanding += _asInt(customer.data()?['remaining']);
-        }
-
-        final payments = await customerRef.collection(FirestorePaths.payments).get();
-        for (final p in payments.docs) {
-          final ts = p.data()['date'];
-          if (ts is! Timestamp) continue;
-          final d = ts.toDate();
-          if (d.year == now.year && d.month == now.month) {
-            monthCol += _asInt(p.data()['amount']);
-          }
-        }
-      }
-
-      summaries.add(SiteSummary(
-        siteId: site.id,
-        name: (data['name'] ?? 'Site').toString(),
-        location: (data['location'] ?? '').toString(),
-        plotCount: plotCount,
-        occupied: occupied,
-        outstanding: outstanding,
-        monthCollection: monthCol,
-      ));
-    }
+    final summaries = await Future.wait(
+      sitesSnap.docs.map((site) => _summarizeSite(site, now)),
+    );
 
     summaries.sort((a, b) => b.outstanding.compareTo(a.outstanding));
     return summaries;
   }
 
-  Future<List<PlotSummary>> loadPlotSummaries(String siteId) async {
+  Future<SiteSummary> _summarizeSite(
+    QueryDocumentSnapshot<Map<String, dynamic>> site,
+    DateTime now,
+  ) async {
+    final data = site.data();
+    var plotCount = 0;
+    var occupied = 0;
+    var outstanding = 0;
+    var monthCol = 0;
+
+    final plotsSnap =
+        await site.reference.collection(FirestorePaths.plots).get();
+
+    for (final plot in plotsSnap.docs) {
+      plotCount++;
+      final customerRef = plot.reference
+          .collection(FirestorePaths.customer)
+          .doc(FirestorePaths.customerDetailsId);
+      final customer = await customerRef.get();
+      if (!customer.exists) continue;
+
+      occupied++;
+      outstanding += _asInt(customer.data()?['remaining']);
+
+      final payments =
+          await customerRef.collection(FirestorePaths.payments).get();
+      for (final p in payments.docs) {
+        final ts = p.data()['date'];
+        if (ts is! Timestamp) continue;
+        final d = ts.toDate();
+        if (d.year == now.year && d.month == now.month) {
+          monthCol += _asInt(p.data()['amount']);
+        }
+      }
+    }
+
+    return SiteSummary(
+      siteId: site.id,
+      name: (data['name'] ?? 'Site').toString(),
+      location: (data['location'] ?? '').toString(),
+      plotCount: plotCount,
+      occupied: occupied,
+      outstanding: outstanding,
+      monthCollection: monthCol,
+    );
+  }
+
+  Future<List<PlotSummary>> _fetchPlotSummaries(String siteId) async {
     final now = DateTime.now();
     final plotsSnap = await _db
         .collection(FirestorePaths.sites)
@@ -211,16 +262,24 @@ class PropertyAnalyticsService {
         .collection(FirestorePaths.plots)
         .get();
 
+    if (plotsSnap.docs.isEmpty) return [];
+
+    final customers = await Future.wait(
+      plotsSnap.docs.map(
+        (plot) => plot.reference
+            .collection(FirestorePaths.customer)
+            .doc(FirestorePaths.customerDetailsId)
+            .get(),
+      ),
+    );
+
     final list = <PlotSummary>[];
-    for (final plot in plotsSnap.docs) {
+    for (var i = 0; i < plotsSnap.docs.length; i++) {
+      final plot = plotsSnap.docs[i];
       final data = plot.data();
       final plotNumber = (data['plotNumber'] ?? plot.id).toString();
       final totalPrice = _asInt(data['totalPrice']);
-
-      final customer = await plot.reference
-          .collection(FirestorePaths.customer)
-          .doc(FirestorePaths.customerDetailsId)
-          .get();
+      final customer = customers[i];
 
       if (!customer.exists) {
         list.add(PlotSummary(
@@ -256,26 +315,31 @@ class PropertyAnalyticsService {
   }
 
   Future<Map<int, PropertyMonthBucket>> loadPropertyMonthlyBreakdown(
-    int year,
-  ) async {
+    int year, {
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh) {
+      final cached = AppCache.instance.propertyMonthly(year);
+      if (cached != null) return cached;
+    }
+
     final buckets = <int, PropertyMonthBucket>{
       for (var m = 1; m <= 12; m++) m: const PropertyMonthBucket(),
     };
 
-    final snap = await _db.collectionGroup(FirestorePaths.payments).get();
-    for (final doc in snap.docs) {
-      final data = doc.data();
+    await FirestoreAggregateHelpers.forEachPayment(_db, (data) {
       final ts = data['date'];
-      if (ts is! Timestamp) continue;
+      if (ts is! Timestamp) return;
       final d = ts.toDate();
-      if (d.year != year) continue;
+      if (d.year != year) return;
       final m = d.month;
       final prev = buckets[m]!;
       buckets[m] = PropertyMonthBucket(
         collected: prev.collected + _asInt(data['amount']),
         paymentCount: prev.paymentCount + 1,
       );
-    }
+    });
+    AppCache.instance.putPropertyMonthly(year, buckets);
     return buckets;
   }
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/app_cache.dart';
 import '../services/search_service.dart';
 import '../services/property_analytics_service.dart';
 import '../utils/ledger_calculator.dart';
@@ -44,8 +45,17 @@ class _SiteCustomerSearchScreenState extends State<SiteCustomerSearchScreen> {
   }
 
   Future<void> _loadContext() async {
+    final cached = AppCache.instance.plotSummaries(widget.siteId);
+    if (cached != null && mounted) {
+      _applyContext(cached);
+    }
+
     final plots = await _analytics.loadPlotSummaries(widget.siteId);
     if (!mounted) return;
+    _applyContext(plots);
+  }
+
+  void _applyContext(List<PlotSummary> plots) {
     final occupied = plots.where((p) => p.hasCustomer).length;
     final outstanding = plots.fold<int>(0, (s, p) => s + p.remaining);
     setState(() {

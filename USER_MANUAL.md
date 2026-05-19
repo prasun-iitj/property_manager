@@ -1,10 +1,11 @@
 # Property Manager — User Manual
 
-**Version:** 1.1.0 (operational)  
+**Version:** 1.2.0 (operational)  
 **Maintainer:** Prasun Kumar Tripathi  
 **Platforms:** Web (Chrome recommended), Android, iOS, Windows, macOS  
+**Web app:** https://propertymanagerapp-c4961.web.app
 
-> **Note:** This version of the app and its user manual were updated with **[Cursor](https://cursor.com)** AI-assisted development (release tag `v1.1.0-cursor`).
+> **Note:** This app and manual are maintained with **[Cursor](https://cursor.com)** AI-assisted development. See [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -25,10 +26,10 @@ The app uses **Firebase** (cloud login + database). Your data syncs when you are
 
 | Role | After login you see | Typical permissions |
 |------|---------------------|---------------------|
-| **admin** | Three-zone **Admin Dashboard** | Full access: sites, plots, customers, payments, documents, ledger, delete site (with password), backup |
-| **staff** | **Property Hub** (site list) directly | Operational access: customers, payments, documents, ledger; cannot delete sites |
+| **admin** | Three-zone **Admin Dashboard** | Full access: sites, plots, customers, payments, documents, ledger, **Manage team**, **Cloud backup**, delete site (with password) |
+| **staff** | **Property Hub** (site list) directly | Operational access: customers, payments, documents, ledger; cannot delete sites, manage team, or run cloud backup |
 
-Roles are stored in Firestore `users/{your-uid}.role`. Ask an admin to set your role.
+Roles are stored in Firestore `users/{your-uid}.role`. New users are added by an admin in **Manage team** (you cannot self-register via Google unless already provisioned).
 
 ---
 
@@ -70,7 +71,9 @@ Login
 
 ### 4.1 Login & security
 
-- Sign in with email/password (Firebase Auth)
+- Sign in with **email/password** (Firebase Auth)
+- Modern **login screen** with validation and clear error messages
+- **Google sign-in** (if enabled): only works if an admin has already added your account in Manage team
 - **Inactivity timer** — session attention on user activity (tap/scroll resets)
 - **Logout** — top-right on dashboard or app bar where available
 - **EMI check** runs once after login (background reminder for overdue plot EMIs)
@@ -87,8 +90,35 @@ Three color-coded workspaces on one screen (desktop: side by side; mobile: stack
 
 Tap a zone header or its buttons to navigate.
 
+**Admin toolbar (top):**
+
+| Icon | Feature |
+|------|---------|
+| People | **Manage team** — add staff/admin, disable users, promote to admin |
+| Cloud upload | **Cloud backup** — run backup now, enable daily backup, view history |
+
+### 4.2a Manage team (admin only)
+
+1. Open **Manage team** from the dashboard toolbar.  
+2. **Super admin email** — set the email that receives security codes (OTP) when creating or promoting admins. Use **Use my current login email** for convenience.  
+3. **Add member** — enter name, email, password, role (staff or admin).  
+   - New **admin** accounts require the 6-digit code sent to the super admin email (check spam).  
+4. **Promote to admin** — staff can be promoted; OTP required.  
+5. **Disable** — blocks sign-in without deleting data.  
+
+### 4.2b Cloud backup (admin only)
+
+1. Open **Cloud backup** from the dashboard toolbar.  
+2. Toggle **daily backup** (runs at 2:00 AM India time).  
+3. Tap **Run backup now** for an immediate full database export.  
+4. View **history** — each run shows time, status, and storage path.  
+5. Exports are stored securely in Firebase Storage (JSON).  
+
+For ledger-only CSV export, use **Ledger Dashboard → Backup** (section 4.12).
+
 ### 4.3 Property Hub (sites)
 
+- **Staff banner** (staff only): reminds you that admin features are on the admin dashboard  
 - **Overview banner**: sites count, plots, occupancy %, outstanding, EMI due count  
 - **Search** sites by name or location  
 - **Site card**: plots sold, progress bar, outstanding  
@@ -183,12 +213,18 @@ Upload types: **Aadhar**, **PAN**, **Registry**, **Other**
 - Ledger snapshot panel  
 - Quick links to ledger and property hub  
 
-### 4.12 Backup (ledger)
+### 4.12 Backup (ledger CSV)
 
 - From Ledger Dashboard → **Backup**  
 - Exports ledger data (CSV-style) for offline records  
+- This is separate from **Cloud backup** (full Firestore JSON for admins)
 
-### 4.13 Notifications
+### 4.13 Performance tips
+
+- Lists and dashboards load faster when you navigate back — the app keeps recent data for about a minute and refreshes in the background.  
+- Pull down to **refresh** on supported screens if numbers look stale.  
+
+### 4.14 Notifications
 
 - Local notifications for **EMI due** on plot customers (checked after login)  
 - Requires notification permission on mobile/desktop  
@@ -216,7 +252,10 @@ Upload types: **Aadhar**, **PAN**, **Registry**, **Other**
 | Cannot add duplicate plot | Rename or delete the other plot with same number |
 | Payment blocked | Fixed — overpayments now allowed |
 | Staff sees no dashboard | Expected — staff goes to Property Hub |
+| Google login blocked | Admin must add you in Manage team first |
+| Admin OTP not received | Check spam; confirm super admin email in Manage team; SMTP configured on server |
 | Ledger balance looks wrong | Open loan detail — balances recalculate from all installments by date |
+| App slow on back button | Update to latest build (caching enabled) |
 
 ---
 
@@ -230,6 +269,7 @@ Upload types: **Aadhar**, **PAN**, **Registry**, **Other**
 ## 8. Related documentation
 
 - `README.md` — technical overview and setup  
+- `INTERVIEW_PREP.md` — simple project explanation for interviews  
 - `ARCHITECTURE.md` — code structure and services  
 - `DATABASE_SCHEMA.md` — Firestore fields and paths  
-- `INSTRUCTIONS.md` — developer conventions  
+- `INSTRUCTIONS.md` — developer conventions (team, backup, deploy)  

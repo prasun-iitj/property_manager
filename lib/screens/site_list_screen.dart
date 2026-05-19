@@ -3,9 +3,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'add_site_screen.dart';
 import 'plot_list_screen.dart';
 import 'site_customer_search_screen.dart';
+import '../services/app_cache.dart';
 import '../services/site_service.dart';
 import '../services/property_analytics_service.dart';
 import '../utils/ledger_calculator.dart';
+import '../utils/session_actions.dart';
+import '../widgets/role_access_banner.dart';
 
 class SiteListScreen extends StatefulWidget {
   final String role;
@@ -24,6 +27,7 @@ class _SiteListScreenState extends State<SiteListScreen> {
   PropertyGlobalStats? _global;
   List<SiteSummary> _sites = [];
   bool _loading = true;
+  String? _loadError;
 
   @override
   void initState() {
@@ -37,21 +41,50 @@ class _SiteListScreenState extends State<SiteListScreen> {
     super.dispose();
   }
 
-  Future<void> _refresh() async {
-    setState(() => _loading = true);
+  Future<void> _refresh({bool force = false, bool background = false}) async {
+    final cachedGlobal = AppCache.instance.propertyGlobal;
+    final cachedSites = AppCache.instance.siteSummaries;
+    if (!force && cachedGlobal != null && cachedSites != null) {
+      setState(() {
+        _global = cachedGlobal;
+        _sites = cachedSites;
+        _loading = false;
+        _loadError = null;
+      });
+    } else if (!background) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
+    }
+
     try {
       final results = await Future.wait([
-        _analytics.loadGlobalStats(),
-        _analytics.loadSiteSummaries(),
+        _analytics.loadGlobalStats(forceRefresh: force),
+        _analytics.loadSiteSummaries(forceRefresh: force),
       ]);
       if (!mounted) return;
       setState(() {
         _global = results[0] as PropertyGlobalStats;
         _sites = results[1] as List<SiteSummary>;
       });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loadError = e.toString());
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not load property data: $e'),
+            backgroundColor: Colors.orange.shade800,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _logout() async {
+    await signOutCompletely();
   }
 
   Future<void> deleteSite(String siteId) async {
@@ -138,6 +171,11 @@ class _SiteListScreenState extends State<SiteListScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Sign out',
+            onPressed: _logout,
+          ),
           if (widget.role == 'admin')
             IconButton(
               icon: const Icon(Icons.add),
@@ -158,11 +196,33 @@ class _SiteListScreenState extends State<SiteListScreen> {
               child: CustomScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
+                  SliverToBoxAdapter(
+                    child: RoleAccessBanner(
+                      role: widget.role,
+                      email: FirebaseAuth.instance.currentUser?.email,
+                    ),
+                  ),
                   SliverToBoxAdapter(child: _buildHero()),
+                  if (_loadError != null)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Text(
+                          'Data error — tap refresh or sign out and use admin account.',
+                          style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                        ),
+                      ),
+                    ),
                   SliverToBoxAdapter(child: _buildSearch()),
                   if (_filteredSites.isEmpty)
-                    const SliverFillRemaining(
-                      child: Center(child: Text('No sites match your search')),
+                    SliverFillRemaining(
+                      child: Center(
+                        child: Text(
+                          _sites.isEmpty
+                              ? 'No sites found. Sign out and log in with admin if you need full access.'
+                              : 'No sites match your search',
+                        ),
+                      ),
                     )
                   else
                     SliverPadding(
@@ -311,7 +371,7 @@ class _SiteListScreenState extends State<SiteListScreen> {
                 role: widget.role,
               ),
             ),
-          ).then((_) => _refresh());
+          ).then((_) => _refresh(background: true));
         },
         child: Padding(
           padding: const EdgeInsets.all(14),

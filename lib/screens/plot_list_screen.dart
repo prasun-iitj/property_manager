@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'add_plot_screen.dart';
 import 'customer_detail_screen.dart';
 import 'site_customer_search_screen.dart';
+import '../services/app_cache.dart';
 import '../services/plot_service.dart';
 import '../services/property_analytics_service.dart';
 import '../utils/ledger_calculator.dart';
+import '../utils/session_actions.dart';
 
 enum _PlotFilter { all, occupied, vacant, emiDue }
 
@@ -44,10 +46,22 @@ class _PlotListScreenState extends State<PlotListScreen> {
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _load({bool force = false, bool background = false}) async {
+    final cached = AppCache.instance.plotSummaries(widget.siteId);
+    if (!force && cached != null) {
+      setState(() {
+        _plots = cached;
+        _loading = false;
+      });
+    } else if (!background) {
+      setState(() => _loading = true);
+    }
+
     try {
-      final plots = await _analytics.loadPlotSummaries(widget.siteId);
+      final plots = await _analytics.loadPlotSummaries(
+        widget.siteId,
+        forceRefresh: force,
+      );
       if (mounted) setState(() => _plots = plots);
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -105,6 +119,11 @@ class _PlotListScreenState extends State<PlotListScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Sign out',
+            onPressed: () => signOutCompletely(),
+          ),
           IconButton(
             icon: const Icon(Icons.person_search),
             onPressed: () {
@@ -312,7 +331,7 @@ class _PlotListScreenState extends State<PlotListScreen> {
                 role: widget.role,
               ),
             ),
-          ).then((_) => _load());
+          ).then((_) => _load(background: true));
         },
         child: Padding(
           padding: const EdgeInsets.all(14),

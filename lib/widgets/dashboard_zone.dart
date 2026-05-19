@@ -7,7 +7,7 @@ class DashboardZone extends StatelessWidget {
   final IconData icon;
   final List<Color> gradient;
   final Color accent;
-  final List<Widget> stats;
+  final Widget statsPanel;
   final List<Widget> actions;
   final VoidCallback? onTap;
 
@@ -18,7 +18,7 @@ class DashboardZone extends StatelessWidget {
     required this.icon,
     required this.gradient,
     required this.accent,
-    required this.stats,
+    required this.statsPanel,
     required this.actions,
     this.onTap,
   });
@@ -92,13 +92,14 @@ class DashboardZone extends StatelessWidget {
                       ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Expanded(
-                  child: Column(
-                    children: stats,
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: statsPanel,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 ...actions,
               ],
             ),
@@ -109,58 +110,124 @@ class DashboardZone extends StatelessWidget {
   }
 }
 
-class ZoneStatTile extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color? valueColor;
+/// Fixed 2×2 stat grid — avoids nested [Expanded] layout bugs on mobile web.
+class ZoneStats2x2 extends StatelessWidget {
+  final ZoneStatCell topLeft;
+  final ZoneStatCell topRight;
+  final ZoneStatCell bottomLeft;
+  final ZoneStatCell bottomRight;
+  final String? footnote;
 
-  const ZoneStatTile({
+  const ZoneStats2x2({
     super.key,
-    required this.label,
-    required this.value,
-    this.valueColor,
+    required this.topLeft,
+    required this.topRight,
+    required this.bottomLeft,
+    required this.bottomRight,
+    this.footnote,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.18),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-        ),
-        child: Column(
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.85),
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 2),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                value,
-                style: TextStyle(
-                  color: valueColor ?? Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
+            Expanded(child: ZoneStatTile(cell: topLeft)),
+            const SizedBox(width: 6),
+            Expanded(child: ZoneStatTile(cell: topRight)),
           ],
         ),
+        const SizedBox(height: 6),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: ZoneStatTile(cell: bottomLeft)),
+            const SizedBox(width: 6),
+            Expanded(child: ZoneStatTile(cell: bottomRight)),
+          ],
+        ),
+        if (footnote != null && footnote!.trim().isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            footnote!,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.white.withValues(alpha: 0.92),
+              fontWeight: FontWeight.w500,
+              height: 1.2,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class ZoneStatCell {
+  final String label;
+  final String value;
+  final Color? valueColor;
+
+  const ZoneStatCell({
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+}
+
+class ZoneStatTile extends StatelessWidget {
+  final ZoneStatCell cell;
+
+  const ZoneStatTile({super.key, required this.cell});
+
+  @override
+  Widget build(BuildContext context) {
+    final narrow = MediaQuery.sizeOf(context).width < 600;
+
+    return Container(
+      constraints: BoxConstraints(minHeight: narrow ? 50 : 54),
+      padding: EdgeInsets.symmetric(
+        horizontal: narrow ? 6 : 8,
+        vertical: narrow ? 7 : 8,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            cell.label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.88),
+              fontSize: narrow ? 9 : 10,
+              fontWeight: FontWeight.w500,
+              height: 1.15,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            cell.value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: cell.valueColor ?? Colors.white,
+              fontSize: narrow ? 11 : 12,
+              fontWeight: FontWeight.bold,
+              height: 1.1,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -172,6 +239,7 @@ class ZoneActionButton extends StatelessWidget {
   final VoidCallback onTap;
   final Color foreground;
   final Color background;
+  final double height;
 
   const ZoneActionButton({
     super.key,
@@ -180,15 +248,16 @@ class ZoneActionButton extends StatelessWidget {
     required this.onTap,
     required this.foreground,
     required this.background,
+    this.height = 34,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.only(top: 3),
       child: SizedBox(
         width: double.infinity,
-        height: 36,
+        height: height,
         child: TextButton.icon(
           onPressed: onTap,
           style: TextButton.styleFrom(
@@ -197,12 +266,15 @@ class ZoneActionButton extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
-          icon: Icon(icon, size: 18),
+          icon: Icon(icon, size: 16),
           label: Text(
             label,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
           ),
         ),
       ),
